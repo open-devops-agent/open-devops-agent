@@ -336,9 +336,14 @@ class TestVerificationAuditAndStability:
         fake_clock.time.side_effect = (tick * 31.0 for tick in range(64))
         fake_asyncio = MagicMock()
         fake_asyncio.sleep = AsyncMock()
+
+        async def immediate_pass(self, incident_type, expected_state):
+            return {"check_type": "immediate", "passed": True, "details": {}}
+
         with (
             patch("tools.fix_verifier.time", fake_clock),
             patch("tools.fix_verifier.asyncio", fake_asyncio),
+            patch.object(FixVerifier, "_run_immediate_checks", immediate_pass),
         ):
             result = await FixVerifier().verify_fix(
                 incident_type="cicd",
@@ -353,3 +358,27 @@ class TestVerificationAuditAndStability:
         assert stability["checks_performed"] >= 1, (
             "stability was reported without observing the remediated state even once"
         )
+
+
+class TestVerificationExpectedState:
+    def test_cicd_cloud_and_argocd_include_target_identifiers(self):
+        from agent.core import _verification_expected_state
+
+        cicd = _verification_expected_state(
+            "cicd",
+            {"source": "github", "repo": "o/r", "run_id": 99},
+        )
+        assert cicd["platform"] == "github"
+        assert cicd["repo"] == "o/r"
+        assert cicd["run_id"] == 99
+
+        cloud = _verification_expected_state(
+            "cloud_aws",
+            {"resource_type": "ec2", "resource_id": "i-1", "params": {"region": "us-east-1"}},
+        )
+        assert cloud["resource_type"] == "ec2"
+        assert cloud["resource_id"] == "i-1"
+        assert cloud["region"] == "us-east-1"
+
+        argocd = _verification_expected_state("argocd", {"app_name": "frontend"})
+        assert argocd == {"health": "Healthy", "sync": "Synced", "app_name": "frontend"}

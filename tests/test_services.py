@@ -122,6 +122,45 @@ class TestIncidentStore:
         for key in fresh_keys:
             assert storage.exists(key)
 
+    def test_apply_retention_deletes_production_checkpoint_and_queue_keys(self, monkeypatch):
+        """Issue #50: checkpoint_key()/queue_key() entries age out via payload timestamps."""
+        monkeypatch.setenv("AUDIT_RETENTION_DAYS", "90")
+        storage = MemoryStorage()
+        store = IncidentStore(storage)
+        org = "org1"
+        aged_checkpoint = storage.checkpoint_key(org, "INC-old")
+        aged_queue = storage.queue_key(org, "pending", "INC-old")
+        storage.put_json(
+            aged_checkpoint,
+            {"incident_id": "INC-old", "updated_at": "2020-01-15T00:00:00+00:00"},
+        )
+        storage.put_json(
+            aged_queue,
+            {
+                "incident_id": "INC-old",
+                "status": "pending",
+                "created_at": "2020-01-15T00:00:00+00:00",
+            },
+        )
+        store.save_checkpoint(org, "INC-new", [], [], 1, {}, "k8s")
+        fresh_queue = storage.queue_key(org, "pending", "INC-new")
+        storage.put_json(
+            fresh_queue,
+            {
+                "incident_id": "INC-new",
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        deleted = store.apply_retention(org)
+
+        assert deleted == 2
+        assert not storage.exists(aged_checkpoint)
+        assert not storage.exists(aged_queue)
+        assert storage.exists(storage.checkpoint_key(org, "INC-new"))
+        assert storage.exists(fresh_queue)
+
 
 class TestRetentionScheduler:
     @pytest.mark.asyncio

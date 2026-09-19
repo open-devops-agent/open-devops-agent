@@ -6,6 +6,7 @@ its observations with a delay strictly greater than zero, so their count is
 governed by the requested time window rather than by event-loop throughput.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
 import types
 
 import pytest
@@ -116,8 +117,12 @@ class TestStabilityMonitoringPacing:
 
 class TestFixVerifierStability:
     @pytest.mark.asyncio
-    async def test_zero_monitoring_duration_is_not_verified(self):
+    async def test_zero_monitoring_duration_is_not_verified(self, monkeypatch):
         """Issue #52: zero-duration monitoring must not report verified success."""
+        async def immediate_pass(self, incident_type, expected_state):
+            return {"check_type": "immediate", "passed": True, "details": {}}
+
+        monkeypatch.setattr(FixVerifier, "_run_immediate_checks", immediate_pass)
         result = await FixVerifier().verify_fix(
             incident_type="cicd",
             fix_applied="rerun pipeline",
@@ -130,3 +135,101 @@ class TestFixVerifierStability:
         stability = result["checks_performed"][1]
         assert stability["checks_performed"] == 0
         assert stability["stable"] is False
+
+
+def _mock_http_get(json_data, status_code=200):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data
+    client = MagicMock()
+    client.get = AsyncMock(return_value=resp)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    return patch("tools.fix_verifier.httpx.AsyncClient", return_value=client)
+
+
+class TestCicdCloudArgocdVerification:
+    """Issue #53: CI/CD, cloud, and ArgoCD verification must observe target systems."""
+
+    @pytest.mark.asyncio
+    async def test_empty_expected_state_does_not_pass(self):
+        verifier = FixVerifier()
+        cicd = await verifier._verify_cicd_fix({})
+        cloud = await verifier._verify_cloud_fix("cloud_aws", {})
+        argocd = await verifier._verify_argocd_fix({})
+
+        assert cicd["passed"] is False
+        assert cloud["passed"] is False
+        assert argocd["passed"] is False
+
+    @pytest.mark.asyncio
+    async def test_github_run_success_observes_actions_api(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+        with _mock_http_get({"conclusion": "success", "status": "completed", "html_url": "https://github.com/o/r/actions/runs/1"}) as mocked:
+            result = await FixVerifier()._verify_cicd_fix(
+                {"platform": "github", "repo": "o/r", "run_id": 1}
+            )
+
+        assert result["passed"] is True
+        mocked.return_value.get.assert_awaited()
+        url = mocked.return_value.get.await_args.args[0]
+        assert url.endswith("/repos/o/r/actions/runs/1")
+
+    @pytest.mark.asyncio
+    async def test_github_run_failure_does_not_pass(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+        with _mock_http_get({"conclusion": "failure", "status": "completed"}):
+            result = await FixVerifier()._verify_cicd_fix(
+                {"platform": "github", "repo": "o/r", "run_id": 1}
+            )
+        assert result["passed"] is False
+
+    @pytest.mark.asyncio
+    async def test_cloud_aws_observes_collector(self):
+        verifier = FixVerifier()
+        verifier._observe_cloud = AsyncMock(
+            return_value={"resource_type": "ec2", "instance_id": "i-1", "state": "running"}
+        )
+        result = await verifier._verify_cloud_fix(
+            "cloud_aws",
+            {"resource_type": "ec2", "resource_id": "i-1", "state": "running"},
+        )
+        assert result["passed"] is True
+        verifier._observe_cloud.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cloud_aws_collector_error_does_not_pass(self):
+        verifier = FixVerifier()
+        verifier._observe_cloud = AsyncMock(return_value={"error": "Instance i-1 not found"})
+        result = await verifier._verify_cloud_fix(
+            "cloud_aws",
+            {"resource_type": "ec2", "resource_id": "i-1"},
+        )
+        assert result["passed"] is False
+
+    @pytest.mark.asyncio
+    async def test_argocd_observes_application_status(self):
+        verifier = FixVerifier()
+        verifier._observe_argocd = AsyncMock(
+            return_value={
+                "app_name": "frontend",
+                "health": {"status": "Healthy"},
+                "sync": {"status": "Synced"},
+            }
+        )
+        result = await verifier._verify_argocd_fix({"app_name": "frontend"})
+        assert result["passed"] is True
+        verifier._observe_argocd.assert_awaited_once_with("frontend")
+
+    @pytest.mark.asyncio
+    async def test_argocd_unhealthy_does_not_pass(self):
+        verifier = FixVerifier()
+        verifier._observe_argocd = AsyncMock(
+            return_value={
+                "app_name": "frontend",
+                "health": {"status": "Degraded"},
+                "sync": {"status": "Synced"},
+            }
+        )
+        result = await verifier._verify_argocd_fix({"app_name": "frontend"})
+        assert result["passed"] is False
