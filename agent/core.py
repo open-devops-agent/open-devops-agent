@@ -416,6 +416,39 @@ def _verification_expected_state(issue_type: str, context: dict) -> dict:
         return expected_state
     if issue_type in ("server", "linux", "windows", "rhel") and context.get("service"):
         return {"service_name": context["service"]}
+    if issue_type == "cicd":
+        expected_state = {
+            "platform": get_cicd_platform(context.get("labels", {}) or {}, context),
+            "expected_status": "success",
+        }
+        for key in (
+            "repo",
+            "run_id",
+            "project_id",
+            "pipeline_id",
+            "job_name",
+            "build_number",
+            "plan_key",
+            "project",
+        ):
+            if context.get(key) is not None:
+                expected_state[key] = context[key]
+        return expected_state
+    if issue_type.startswith("cloud_"):
+        expected_state = {}
+        if context.get("resource_type"):
+            expected_state["resource_type"] = context["resource_type"]
+        if context.get("resource_id"):
+            expected_state["resource_id"] = context["resource_id"]
+        params = context.get("params") or {}
+        if isinstance(params, dict):
+            expected_state.update({k: v for k, v in params.items() if v is not None})
+        return expected_state
+    if issue_type == "argocd":
+        expected_state = {"health": "Healthy", "sync": "Synced"}
+        if context.get("app_name"):
+            expected_state["app_name"] = context["app_name"]
+        return expected_state
     return {}
 
 
