@@ -5,7 +5,6 @@ Fetches failed workflow run logs from GitHub Actions API.
 import os
 import zipfile
 import io
-from typing import Optional
 
 import httpx
 import structlog
@@ -14,9 +13,10 @@ log = structlog.get_logger()
 
 
 class GitHubCollector:
-    def __init__(self):
+    def __init__(self, base_url: str | None = None):
         self.token = os.getenv("GITHUB_TOKEN", "")
         self.headers = self._build_headers()
+        self.base = (base_url or "https://api.github.com").rstrip("/")
 
     def _build_headers(self) -> dict:
         return {
@@ -28,7 +28,6 @@ class GitHubCollector:
     def refresh_credentials(self) -> None:
         self.token = os.getenv("GITHUB_TOKEN", "")
         self.headers = self._build_headers()
-        self.base = "https://api.github.com"
 
     async def collect(self, repo: str, run_id: int) -> dict:
         """Fetch full logs for a failed workflow run."""
