@@ -15,13 +15,27 @@ a string that merely spells out an env lookup parses to `ast.Constant`, not to a
 
 import ast
 import re
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 # Directories with no application code (virtualenvs, build output, VCS metadata).
-SKIPPED_DIRS = {".git", ".venv", "venv", "env", "build", "dist", "__pycache__"}
+SKIPPED_DIRS = {
+    ".git",
+    ".venv",
+    ".test-venv",
+    "venv",
+    "env",
+    ".tox",
+    ".pytest_cache",
+    "build",
+    "dist",
+    "htmlcov",
+    "node_modules",
+    "__pycache__",
+}
 
 # Variables read from code but deliberately absent from `.env.example`, each with
 # the reason it stays out. An entry here is a promise that operators must never
@@ -101,9 +115,11 @@ def _referenced_env_vars():
     for path in _python_sources():
         relative_path = path.relative_to(REPO_ROOT).as_posix()
         collector = _EnvVarCollector(relative_path)
-        collector.visit(
-            ast.parse(path.read_text(encoding="utf-8"), filename=relative_path)
-        )
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        collector.visit(ast.parse(source, filename=relative_path))
         for name, location in collector.names.items():
             references.setdefault(name, location)
     return references
@@ -143,3 +159,14 @@ def test_undocumented_by_design_entries_are_still_undocumented():
         "these UNDOCUMENTED_BY_DESIGN entries are now declared in .env.example; "
         "drop them from the allow-list: " + str(stale)
     )
+
+
+def test_scanner_skips_unreadable_python_files(tmp_path, monkeypatch):
+    """A non-UTF-8 Python file outside the application tree is ignored."""
+    (tmp_path / "app.py").write_text(
+        'import os\nos.getenv("KNOWN_ENV")\n', encoding="utf-8"
+    )
+    (tmp_path / "broken.py").write_bytes(b"\xff\xfe\xfd")
+    monkeypatch.setattr(sys.modules[__name__], "REPO_ROOT", tmp_path)
+
+    assert _referenced_env_vars() == {"KNOWN_ENV": "app.py:2"}
