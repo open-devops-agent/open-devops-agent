@@ -45,6 +45,11 @@ from tools.cloud_tools import CloudTools
 from tools.notify import SlackNotifier
 from tools.fix_suggestions import validate_suggestion
 from tools.fix_verifier import FixVerifier
+from tools.disk_cleanup import DiskCleanup
+from tools.nginx_tools import NginxTools
+from tools.security_updates import SecurityUpdates
+from tools.observability import ObservabilityTools
+from tools.data_state import DataStateTools
 from collectors.database_policy import check_database_access
 from services.incident_store import IncidentStore
 from services.org_docs import OrgDocs
@@ -207,31 +212,37 @@ AGENT_TOOLS = [
     },
     {
         "name": "retry_cicd_pipeline",
-        "description": "Retry a failed CI/CD pipeline. Supports: GitLab, Jenkins, Bamboo, Azure DevOps.",
+        "description": "Retry a failed CI/CD pipeline. Supports: GitHub Actions, GitLab, Jenkins, Bamboo, Azure DevOps.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "platform": {"type": "string", "enum": ["gitlab", "jenkins", "bamboo", "azure_devops"]},
-                "project_id": {"type": "string", "description": "Project/job identifier"},
-                "pipeline_id": {"type": "string", "description": "Pipeline/build ID"},
-                "additional_params": {"type": "object", "description": "Platform-specific params"},
+                "platform": {"type": "string", "enum": ["github", "gitlab", "jenkins", "bamboo", "azure_devops"]},
+                "project_id": {"type": "string", "description": "Repo (GitHub), project/job/plan identifier"},
+                "pipeline_id": {"type": "string", "description": "Run/pipeline/build ID"},
+                "additional_params": {
+                    "type": "object",
+                    "description": "GitHub: failed_jobs_only. Azure: project, run_id.",
+                },
             },
             "required": ["platform", "project_id"],
         },
     },
     {
         "name": "create_cicd_pr",
-        "description": "Create a PR/MR with a CI/CD config fix. Supports: GitHub (via create_github_pr), GitLab, Azure DevOps.",
+        "description": "Create a PR/MR with a CI/CD config fix. GitHub, GitLab, Azure DevOps. Jenkins/Bamboo open a PR on the SCM repo (Jenkinsfile / bamboo-specs).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "platform": {"type": "string", "enum": ["github", "gitlab", "azure_devops"]},
-                "repo": {"type": "string", "description": "Repository identifier"},
+                "platform": {"type": "string", "enum": ["github", "gitlab", "azure_devops", "jenkins", "bamboo"]},
+                "repo": {"type": "string", "description": "Git repo (Jenkins: JENKINS_SCM_REPO, Bamboo: BAMBOO_SPECS_REPO)"},
                 "file_path": {"type": "string"},
                 "new_content": {"type": "string"},
                 "pr_title": {"type": "string"},
                 "pr_body": {"type": "string"},
-                "additional_params": {"type": "object"},
+                "additional_params": {
+                    "type": "object",
+                    "description": "scm_provider, scm_repo, project (Azure)",
+                },
             },
             "required": ["platform", "repo", "file_path", "new_content", "pr_title", "pr_body"],
         },
@@ -397,6 +408,345 @@ AGENT_TOOLS = [
             "required": ["cloud", "service_type", "service_id", "desired_count"],
         },
     },
+    {
+        "name": "inspect_disk_usage",
+        "description": "Read disk, inode, journal, and large-log usage. Never deletes anything.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string", "description": "Target host (optional, defaults to localhost)"},
+            },
+        },
+    },
+    {
+        "name": "cleanup_stale_logs",
+        "description": (
+            "Shrink systemd journals and delete only aged rotated/compressed logs under /var/log. "
+            "Never deletes production, database, or in-use data — those paths are returned as alerts. "
+            "Always call with dry_run=true first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+                "dry_run": {"type": "boolean", "description": "Default true. Preview only."},
+            },
+        },
+    },
+    {
+        "name": "install_log_cleanup_cron",
+        "description": "Install a cron job that only vacuums journals and deletes aged rotated /var/log archives. dry_run=true first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+                "dry_run": {"type": "boolean", "description": "Default true."},
+            },
+        },
+    },
+    {
+        "name": "diagnose_nginx",
+        "description": "Test nginx config, service status, certbot certificates, and recent nginx journal errors. On nginx -t failure, returns the broken file and its contents.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "apply_nginx_config",
+        "description": "Write a repaired nginx config under /etc/nginx/, run nginx -t, restore the previous file if the test fails, then reload.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Absolute path under /etc/nginx/"},
+                "new_content": {"type": "string", "description": "Full file contents"},
+                "host": {"type": "string"},
+            },
+            "required": ["file_path", "new_content"],
+        },
+    },
+    {
+        "name": "restart_nginx",
+        "description": "Reload or restart nginx only after nginx -t passes. Pass config_path + config_content to apply a repair first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+                "reload_only": {"type": "boolean", "description": "Default false. Prefer reload when possible."},
+                "config_path": {"type": "string"},
+                "config_content": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "renew_certificates",
+        "description": "certbot renew, including DNS-01/wildcard when CERTBOT_DNS_PLUGIN is set. dry_run=true first. Reloads nginx after a live renew if nginx -t passes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+                "dry_run": {"type": "boolean", "description": "Default true."},
+                "domains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Domains for certonly DNS-01 (e.g. *.example.com, example.com).",
+                },
+            },
+        },
+    },
+    {
+        "name": "apply_security_updates",
+        "description": "Apply unattended security updates only. Never dist-upgrade or reboot. dry_run=true first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+                "dry_run": {"type": "boolean", "description": "Default true."},
+            },
+        },
+    },
+    {
+        "name": "bamboo_check_version",
+        "description": "Check a Bamboo plan version: plan variable plus latest ResultResource build number.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "plan_key": {"type": "string"},
+                "variable_name": {"type": "string"},
+                "expected_version": {"type": "string"},
+            },
+            "required": ["plan_key"],
+        },
+    },
+    {
+        "name": "bamboo_increment_version",
+        "description": "Increment a Bamboo plan version variable (patch +1) and optionally queue a new build.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "plan_key": {"type": "string", "description": "Bamboo plan key e.g. PROJ-PLAN"},
+                "variable_name": {"type": "string", "description": "Plan variable to bump. Default version."},
+                "current_version": {"type": "string", "description": "Override if the plan variable cannot be read."},
+                "queue_build": {"type": "boolean", "description": "Queue a build after increment. Default true."},
+            },
+            "required": ["plan_key"],
+        },
+    },
+    {
+        "name": "patch_bamboo_plan",
+        "description": "Patch a Bamboo plan: increment version (optional) and queue a rebuild.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "plan_key": {"type": "string"},
+                "increment_version": {"type": "boolean", "description": "Default true."},
+                "variable_name": {"type": "string"},
+                "current_version": {"type": "string"},
+            },
+            "required": ["plan_key"],
+        },
+    },
+    {
+        "name": "query_metrics",
+        "description": "Query Prometheus, Grafana, Datadog, or New Relic.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "provider": {"type": "string", "enum": ["prometheus", "grafana", "datadog", "newrelic"]},
+                "start": {"type": "number"},
+                "end": {"type": "number"},
+                "step": {"type": "string"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "evaluate_slo",
+        "description": "Compute availability and error-budget remaining from good/total metric queries.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "good_query": {"type": "string"},
+                "total_query": {"type": "string"},
+                "objective": {"type": "number", "description": "e.g. 0.999"},
+                "provider": {"type": "string"},
+                "window": {"type": "string"},
+            },
+            "required": ["good_query", "total_query"],
+        },
+    },
+    {
+        "name": "capacity_check",
+        "description": "CPU/memory/disk capacity vs thresholds from Prometheus (or another metrics provider).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string"},
+                "cpu_query": {"type": "string"},
+                "memory_query": {"type": "string"},
+                "disk_query": {"type": "string"},
+                "cpu_threshold": {"type": "number"},
+                "memory_threshold": {"type": "number"},
+                "disk_threshold": {"type": "number"},
+            },
+        },
+    },
+    {
+        "name": "query_traces",
+        "description": "Search traces in Tempo, Jaeger, or Datadog APM.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "service": {"type": "string"},
+                "backend": {"type": "string", "enum": ["tempo", "jaeger", "datadog"]},
+                "limit": {"type": "integer"},
+            },
+            "required": ["service"],
+        },
+    },
+    {
+        "name": "run_synthetic",
+        "description": "HTTP synthetic check: GET a URL and assert status/latency.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "expect_status": {"type": "integer"},
+                "timeout_seconds": {"type": "number"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "get_oncall_roster",
+        "description": "List who is on-call in PagerDuty (incident commander candidate).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schedule_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "assign_incident_commander",
+        "description": "Set the incident commander to the current PagerDuty on-call user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schedule_id": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "update_status_page",
+        "description": "Create or update a Statuspage.io incident (investigating/identified/monitoring/resolved).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "body": {"type": "string"},
+                "status": {"type": "string"},
+                "impact": {"type": "string"},
+            },
+            "required": ["name", "body"],
+        },
+    },
+    {
+        "name": "check_database_health",
+        "description": "Read-only DB health (SELECT 1 or cloud describe). Requires ENABLE_DATABASE_COLLECTION=true. No writes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "resource_type": {"type": "string"},
+                "resource_id": {"type": "string"},
+                "query": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "list_snapshots",
+        "description": "List RDS/EBS snapshots. Requires ENABLE_DATABASE_COLLECTION=true.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "resource_id": {"type": "string"},
+                "engine": {"type": "string", "enum": ["rds", "ebs"]},
+            },
+            "required": ["resource_id"],
+        },
+    },
+    {
+        "name": "create_snapshot",
+        "description": "Create an RDS or EBS snapshot (additive). Never restores.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "resource_id": {"type": "string"},
+                "snapshot_id": {"type": "string"},
+                "engine": {"type": "string", "enum": ["rds", "ebs"]},
+            },
+            "required": ["resource_id"],
+        },
+    },
+    {
+        "name": "restore_from_snapshot",
+        "description": "Always blocked: restore requires a human DBA. Returns approval instructions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "snapshot_id": {"type": "string"},
+                "target_id": {"type": "string"},
+            },
+            "required": ["snapshot_id", "target_id"],
+        },
+    },
+    {
+        "name": "dr_readiness_check",
+        "description": "Read-only DR drill: Multi-AZ, snapshot presence/age. Does not fail over.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "resource_id": {"type": "string"},
+                "resource_type": {"type": "string"},
+                "max_snapshot_age_hours": {"type": "integer"},
+            },
+            "required": ["resource_id"],
+        },
+    },
+    {
+        "name": "kafka_health",
+        "description": "Kafka REST topics or TCP check of KAFKA_BOOTSTRAP. Requires ENABLE_DATA_STORE_COLLECTION.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "bootstrap": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "elasticsearch_health",
+        "description": "GET /_cluster/health. Requires ENABLE_DATA_STORE_COLLECTION.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "redis_health",
+        "description": "Redis PING (no FLUSH). Requires ENABLE_DATABASE_COLLECTION.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+                "port": {"type": "integer"},
+            },
+        },
+    },
 ]
 
 
@@ -474,6 +824,11 @@ class DevOpsAgent:
         self.helm_tools = HelmTools()
         self.iac_tools = IaCTools()
         self.cloud_tools = CloudTools()
+        self.disk_cleanup = DiskCleanup()
+        self.nginx_tools = NginxTools()
+        self.security_updates = SecurityUpdates()
+        self.observability = ObservabilityTools()
+        self.data_state = DataStateTools()
         
         self.notifier = SlackNotifier()
         self.fix_verifier = FixVerifier()
@@ -843,6 +1198,20 @@ class DevOpsAgent:
                     enriched["cloud_data"] = await self.azure_collector.collect(
                         rt, context["resource_id"], **context.get("params", {})
                     )
+            elif issue_type == "observability":
+                if os.getenv("PROMETHEUS_URL"):
+                    enriched["slo_hint"] = (
+                        "Use query_metrics / evaluate_slo / capacity_check against Prometheus."
+                    )
+            elif issue_type == "data":
+                rt = context.get("resource_type") or ""
+                rid = context.get("resource_id") or context.get("db_instance")
+                if rt and rid:
+                    blocked = check_database_access(rt, cloud=context.get("cloud"))
+                    if blocked:
+                        enriched["data_state"] = blocked
+                    else:
+                        enriched["data_state"] = await self.data_state.check_database_health(rt, rid)
             elif issue_type == "server":
                 target_host = context.get("host") or context.get("node")
                 enriched["target_host"] = target_host or "localhost"
@@ -1046,6 +1415,147 @@ class DevOpsAgent:
                 else:
                     return await self.cloud_tools.restart_service(cloud, resource_type, resource_id, **params)
             
+            elif name == "inspect_disk_usage":
+                return await self.disk_cleanup.inspect(inputs.get("host") or context.get("host"))
+            elif name == "cleanup_stale_logs":
+                return await self.disk_cleanup.apply(
+                    host=inputs.get("host") or context.get("host"),
+                    dry_run=inputs.get("dry_run", True),
+                )
+            elif name == "install_log_cleanup_cron":
+                return await self.disk_cleanup.install_cron(
+                    host=inputs.get("host") or context.get("host"),
+                    dry_run=inputs.get("dry_run", True),
+                )
+            elif name == "diagnose_nginx":
+                return await self.nginx_tools.diagnose(inputs.get("host") or context.get("host"))
+            elif name == "apply_nginx_config":
+                return await self.nginx_tools.apply_nginx_config(
+                    inputs["file_path"],
+                    inputs["new_content"],
+                    host=inputs.get("host") or context.get("host"),
+                )
+            elif name == "restart_nginx":
+                return await self.nginx_tools.restart(
+                    host=inputs.get("host") or context.get("host"),
+                    reload_only=inputs.get("reload_only", False),
+                    config_path=inputs.get("config_path"),
+                    config_content=inputs.get("config_content"),
+                )
+            elif name == "renew_certificates":
+                return await self.nginx_tools.renew_certificates(
+                    host=inputs.get("host") or context.get("host"),
+                    dry_run=inputs.get("dry_run", True),
+                    domains=inputs.get("domains"),
+                )
+            elif name == "apply_security_updates":
+                return await self.security_updates.apply(
+                    host=inputs.get("host") or context.get("host"),
+                    dry_run=inputs.get("dry_run", True),
+                )
+            elif name == "bamboo_check_version":
+                return await self.cicd_tools.check_bamboo_version(
+                    inputs["plan_key"],
+                    variable_name=inputs.get("variable_name"),
+                    expected_version=inputs.get("expected_version"),
+                )
+            elif name == "bamboo_increment_version":
+                return await self.cicd_tools.increment_bamboo_version(
+                    inputs["plan_key"],
+                    variable_name=inputs.get("variable_name"),
+                    current_version=inputs.get("current_version"),
+                    queue_build=inputs.get("queue_build", True),
+                )
+            elif name == "patch_bamboo_plan":
+                return await self.cicd_tools.patch_bamboo_plan(
+                    inputs["plan_key"],
+                    increment_version=inputs.get("increment_version", True),
+                    variable_name=inputs.get("variable_name"),
+                    current_version=inputs.get("current_version"),
+                )
+            elif name == "query_metrics":
+                return await self.observability.query_metrics(
+                    inputs["query"],
+                    provider=inputs.get("provider") or "prometheus",
+                    start=inputs.get("start"),
+                    end=inputs.get("end"),
+                    step=inputs.get("step") or "60s",
+                )
+            elif name == "evaluate_slo":
+                return await self.observability.evaluate_slo(
+                    inputs["good_query"],
+                    inputs["total_query"],
+                    objective=float(inputs.get("objective") or 0.999),
+                    provider=inputs.get("provider") or "prometheus",
+                    window=inputs.get("window") or "30d",
+                )
+            elif name == "capacity_check":
+                return await self.observability.capacity_check(
+                    cpu_query=inputs.get("cpu_query"),
+                    memory_query=inputs.get("memory_query"),
+                    disk_query=inputs.get("disk_query"),
+                    provider=inputs.get("provider") or "prometheus",
+                    cpu_threshold=float(inputs.get("cpu_threshold") or 80),
+                    memory_threshold=float(inputs.get("memory_threshold") or 85),
+                    disk_threshold=float(inputs.get("disk_threshold") or 80),
+                )
+            elif name == "query_traces":
+                return await self.observability.query_traces(
+                    inputs["service"],
+                    backend=inputs.get("backend") or "tempo",
+                    limit=int(inputs.get("limit") or 5),
+                )
+            elif name == "run_synthetic":
+                return await self.observability.run_synthetic(
+                    inputs["url"],
+                    expect_status=int(inputs.get("expect_status") or 200),
+                    timeout_seconds=float(inputs.get("timeout_seconds") or 10),
+                )
+            elif name == "get_oncall_roster":
+                return await self.observability.get_oncall_roster(inputs.get("schedule_id"))
+            elif name == "assign_incident_commander":
+                return await self.observability.assign_incident_commander(inputs.get("schedule_id"))
+            elif name == "update_status_page":
+                return await self.observability.update_status_page(
+                    inputs["name"],
+                    inputs["body"],
+                    status=inputs.get("status") or "investigating",
+                    impact=inputs.get("impact") or "minor",
+                )
+            elif name == "check_database_health":
+                return await self.data_state.check_database_health(
+                    resource_type=inputs.get("resource_type") or "rds",
+                    resource_id=inputs.get("resource_id"),
+                    query=inputs.get("query") or "SELECT 1",
+                )
+            elif name == "list_snapshots":
+                return await self.data_state.list_snapshots(
+                    inputs["resource_id"], engine=inputs.get("engine") or "rds"
+                )
+            elif name == "create_snapshot":
+                return await self.data_state.create_snapshot(
+                    inputs["resource_id"],
+                    snapshot_id=inputs.get("snapshot_id"),
+                    engine=inputs.get("engine") or "rds",
+                )
+            elif name == "restore_from_snapshot":
+                return await self.data_state.restore_from_snapshot(
+                    inputs["snapshot_id"], inputs["target_id"]
+                )
+            elif name == "dr_readiness_check":
+                return await self.data_state.dr_readiness_check(
+                    inputs["resource_id"],
+                    resource_type=inputs.get("resource_type") or "rds",
+                    max_snapshot_age_hours=int(inputs.get("max_snapshot_age_hours") or 24),
+                )
+            elif name == "kafka_health":
+                return await self.data_state.kafka_health(inputs.get("bootstrap"))
+            elif name == "elasticsearch_health":
+                return await self.data_state.elasticsearch_health(inputs.get("url"))
+            elif name == "redis_health":
+                return await self.data_state.redis_health(
+                    host=inputs.get("host"), port=int(inputs.get("port") or 6379)
+                )
             elif name == "scale_cloud_service":
                 return await self.cloud_tools.scale_service(
                     inputs["cloud"],

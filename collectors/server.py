@@ -23,6 +23,9 @@ class ServerCollector:
         ("disk_inodes", "df -i | head -10"),
         ("open_ports", "ss -tlnp | head -20"),
         ("recent_errors", "journalctl -p err -n 50 --no-pager"),
+        ("journal_disk", "journalctl --disk-usage 2>/dev/null || true"),
+        ("nginx_config_test", "nginx -t 2>&1 || true"),
+        ("certbot_certs", "certbot certificates 2>/dev/null || echo 'certbot not available'"),
     ]
 
     async def collect(self, host: Optional[str] = None) -> dict:

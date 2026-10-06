@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Set
 REQUIRES_TOOL_EVIDENCE: Set[str] = {
     "k8s", "cicd", "server", "argocd", "helm", "terraform",
     "cloud_aws", "cloud_gcp", "cloud_azure",
+    "observability", "data",
 }
 
 # Tools that count as evidence-gathering (not just notify)
@@ -25,6 +26,21 @@ EVIDENCE_TOOLS: Set[str] = {
     "terraform_plan",
     "terraform_validate",
     "get_argocd_status",
+    "inspect_disk_usage",
+    "diagnose_nginx",
+    "bamboo_check_version",
+    "query_metrics",
+    "evaluate_slo",
+    "capacity_check",
+    "query_traces",
+    "run_synthetic",
+    "get_oncall_roster",
+    "check_database_health",
+    "list_snapshots",
+    "dr_readiness_check",
+    "kafka_health",
+    "elasticsearch_health",
+    "redis_health",
 }
 
 GROUNDING_RULES = """
@@ -62,6 +78,17 @@ REMEDIATION_TOOLS: Set[str] = {
     "create_cicd_pr",
     "helm_rollback",
     "helm_upgrade",
+    "cleanup_stale_logs",
+    "install_log_cleanup_cron",
+    "apply_nginx_config",
+    "restart_nginx",
+    "renew_certificates",
+    "apply_security_updates",
+    "bamboo_increment_version",
+    "patch_bamboo_plan",
+    "update_status_page",
+    "assign_incident_commander",
+    "create_snapshot",
 }
 
 SUGGESTION_TOOLS: Set[str] = {"suggest_fix"}

@@ -18,6 +18,8 @@ def classify_issue(alertname: str, labels: dict) -> str:
         - argocd: ArgoCD deployment issues
         - helm: Helm chart/release issues
         - terraform: Terraform/IaC drift and validation (read-only)
+        - observability: SLO, metrics, traces, synthetics, on-call, status page
+        - data: databases, snapshots/DR, Kafka, Elasticsearch, Redis
     """
     name = alertname.lower()
 
@@ -30,14 +32,29 @@ def classify_issue(alertname: str, labels: dict) -> str:
                     "pending", "replicaset", "statefulset", "daemonset",
                     "nodepool", "crashloop"]
     
-    server_keywords = ["cpu", "memory", "disk", "load", "nginx", "apache",
-                       "service", "host", "node", "network", "ssh", "systemd"]
+    server_keywords = [
+        "cpu", "memory", "disk", "diskfull", "inode", "load", "nginx", "apache",
+        "service", "host", "node", "network", "ssh", "systemd", "journal",
+        "certbot", "letsencrypt", "wildcard", "certificate", "ssl", "filesystem",
+    ]
     
     argocd_keywords = ["argocd", "argo", "gitops", "sync"]
 
     helm_keywords = ["helm", "chart", "helmrelease", "release failed"]
 
     terraform_keywords = ["terraform", "tfstate", "tf plan", "iac drift", "infrastructure drift"]
+
+    observability_keywords = [
+        "slo", "errorbudget", "error-budget", "error budget", "apdex", "prometheus",
+        "grafana", "datadog", "newrelic", "new relic", "synthetic", "blackbox",
+        "jaeger", "tempo", "traceid", "oncall", "on-call", "statuspage", "status page",
+        "latency", "p99", "burnrate", "burn-rate",
+    ]
+
+    data_keywords = [
+        "kafka", "elasticsearch", "opensearch", "consumerlag", "consumer-lag",
+        "snapshot", "backup", "restore", "failover", "wal", "replication slot",
+    ]
     
     aws_keywords = [
         "ec2", "ecs", "eks", "fargate", "lambda", "rds", "aws", "cloudwatch",
@@ -64,6 +81,10 @@ def classify_issue(alertname: str, labels: dict) -> str:
         return "helm"
     if any(k in name for k in terraform_keywords):
         return "terraform"
+    if any(k in name for k in observability_keywords):
+        return "observability"
+    if any(k in name for k in data_keywords):
+        return "data"
     
     # Check CI/CD before K8s (to catch "deployment" in CICD context)
     if any(k in name for k in cicd_keywords):
@@ -104,6 +125,10 @@ def classify_issue(alertname: str, labels: dict) -> str:
         return "helm"
     if labels.get("terraform_workspace") or labels.get("tf_workspace"):
         return "terraform"
+    if labels.get("slo") or labels.get("prometheus") or labels.get("statuspage"):
+        return "observability"
+    if labels.get("kafka") or labels.get("elasticsearch") or labels.get("snapshot_id"):
+        return "data"
     if labels.get("cloud_provider"):
         cloud = labels["cloud_provider"].lower()
         if "aws" in cloud:
@@ -145,5 +170,7 @@ def get_cicd_platform(labels: dict, context: dict) -> str:
         return "github"
     elif "gitlab" in repo_url:
         return "gitlab"
-    
+    if "bamboo" in repo_url or labels.get("plan_key") or context.get("plan_key"):
+        return "bamboo"
+
     return "unknown"

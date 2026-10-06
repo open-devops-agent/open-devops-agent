@@ -201,7 +201,7 @@ ipconfig /all
 | GitHub Actions | Yes | `collectors/github.py` | Workflow failures, check runs, deployment status |
 | GitLab CI/CD | Yes | `collectors/gitlab.py` | Pipeline failures, job logs, runner issues |
 | Jenkins | Yes | `collectors/jenkins.py` | Build failures, console logs, plugin issues |
-| Bamboo | Yes | `collectors/bamboo.py` | Build failures, deployment issues |
+| Bamboo | Yes | `collectors/bamboo.py` | Build failures, version check/increment, Specs PRs |
 | Azure DevOps | Yes | `collectors/azure_devops.py` | Pipeline failures, release issues |
 | ArgoCD | Yes | `collectors/argocd.py` | Sync failures, health status, rollbacks |
 
@@ -212,6 +212,7 @@ ipconfig /all
 - Fetch workflow run logs
 - Check run status analysis
 - Deployment status tracking
+- Re-run failed jobs (`POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs`)
 
 **Setup:**
 ```yaml
@@ -249,6 +250,7 @@ after_script:
 - Console log parsing
 - Build failure analysis
 - Plugin issue detection
+- PR of Jenkinsfile on `JENKINS_SCM_REPO` (GitHub/GitLab/Azure)
 
 **Setup:**
 ```groovy
@@ -258,6 +260,46 @@ post {
     sh "curl -X POST $AGENT_URL/webhook -d '{\"platform\": \"jenkins\"}'"
   }
 }
+```
+
+### Bamboo
+
+**Capabilities:**
+- Manual incident trigger and build-log collection
+- Queue a new build (`POST /rest/api/latest/queue/{PROJECT}-{PLAN}`)
+- Version check: plan variable + latest ResultResource (`GET .../result/{PROJECT}-{PLAN}-latest`)
+- Patch increment: bump `version` (or `BAMBOO_VERSION_VARIABLE`), PUT, then queue
+- PR against `BAMBOO_SPECS_REPO` (Bamboo has no native PR API)
+
+**REST (PlanResource / ResultResource / QueueResource):**
+```
+GET  /rest/api/latest/plan/{PROJECT}-{PLAN}/variables/{name}
+GET  /rest/api/latest/result/{PROJECT}-{PLAN}-latest
+PUT  /rest/api/latest/plan/{PROJECT}-{PLAN}/variables/{name}   body: {"name":"...","value":"..."}
+POST /rest/api/latest/queue/{PROJECT}-{PLAN}?bamboo.variable.{name}=1.4.1
+```
+
+Fallback version check if `/variables/{name}` is unavailable:
+
+```
+GET /rest/api/latest/plan/{PROJECT}-{PLAN}?expand=variableContext
+```
+
+**Setup:**
+```bash
+# .env
+BAMBOO_URL=https://bamboo.yourcompany.com
+BAMBOO_USERNAME=admin
+BAMBOO_PASSWORD=...
+BAMBOO_VERSION_VARIABLE=version
+BAMBOO_SCM_PROVIDER=github
+BAMBOO_SPECS_REPO=your-org/bamboo-specs
+```
+
+```bash
+curl -X POST $AGENT_URL/webhook/manual \
+  -H "Content-Type: application/json" \
+  -d '{"type":"cicd","source":"bamboo","plan_key":"PROJ-PLAN"}'
 ```
 
 ### ArgoCD
