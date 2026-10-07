@@ -227,8 +227,12 @@ def test_github_tools_mock():
     ("PipelineFailed", {"source": "github_actions"}, "cicd"),
     ("BuildFailed", {"source": "gitlab_ci"}, "cicd"),
     ("JenkinsJobFailed", {"source": "jenkins"}, "cicd"),
+    ("BambooBuildFailed", {"plan_key": "PROJ-PLAN"}, "cicd"),
     ("PodCrashing", {"namespace": "default"}, "k8s"),
     ("ArgoCDSyncFailed", {"app": "test"}, "argocd"),
+    ("DiskFull", {"host": "web-1"}, "server"),
+    ("NginxDown", {}, "server"),
+    ("CertbotRenewFailed", {}, "server"),
 ])
 def test_platform_classification(alert_name, labels, expected_type):
     """Test classification for various platforms"""

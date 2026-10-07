@@ -19,13 +19,13 @@ The agent now supports **5 CI/CD platforms**:
 
 ### Supported Platforms
 
-| Platform | Webhook Support | Log Collection | PR/MR Creation | Pipeline Retry |
-|----------|----------------|----------------|----------------|----------------|
-| **GitHub Actions** | ✅ | ✅ | ✅ | N/A (auto-retry via PR) |
-| **GitLab CI** | ✅ | ✅ | ✅ | ✅ |
-| **Jenkins** | Manual | ✅ | ❌ | ✅ |
-| **Bamboo** | Manual | ✅ | ❌ | ✅ |
-| **Azure DevOps** | ✅ | ✅ | ⚠️ (Limited) | ✅ |
+| Platform | Webhook Support | Log Collection | PR/MR Creation | Pipeline Retry | Version bump |
+|----------|----------------|----------------|----------------|----------------|--------------|
+| **GitHub Actions** | ✅ | ✅ | ✅ | ✅ Rerun failed jobs | ❌ |
+| **GitLab CI** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Jenkins** | Manual | ✅ | ✅ SCM PR (Jenkinsfile repo) | ✅ | ❌ |
+| **Bamboo** | Manual | ✅ | ✅ SCM PR (bamboo-specs repo) | ✅ | ✅ Plan variable + latest result |
+| **Azure DevOps** | ✅ | ✅ | ✅ Git push + PR | ✅ | ❌ |
 
 ### Configuration
 
@@ -40,15 +40,26 @@ GITLAB_URL=https://gitlab.com  # or your self-hosted URL
 JENKINS_URL=https://jenkins.yourcompany.com
 JENKINS_USERNAME=admin
 JENKINS_API_TOKEN=1234567890abcdef
+JENKINS_SCM_PROVIDER=github
+JENKINS_SCM_REPO=your-org/app
 
 # Bamboo
 BAMBOO_URL=https://bamboo.yourcompany.com
 BAMBOO_USERNAME=admin
 BAMBOO_PASSWORD=your-password
+BAMBOO_VERSION_VARIABLE=version  # plan variable to bump (patch +1)
+BAMBOO_SCM_PROVIDER=github
+BAMBOO_SPECS_REPO=your-org/bamboo-specs
 
 # Azure DevOps
 AZURE_DEVOPS_ORG=your-org
 AZURE_DEVOPS_PAT=xxxxxxxxxxxxx
+AZURE_DEVOPS_PROJECT=your-project
+
+# Wildcard TLS / DNS-01
+CERTBOT_DNS_PLUGIN=cloudflare
+CERTBOT_DNS_CREDENTIALS=/etc/letsencrypt/cloudflare.ini
+CERTBOT_WILDCARD_DOMAINS=*.example.com,example.com
 ```
 
 ### Manual Trigger Examples
@@ -103,6 +114,39 @@ curl -X POST http://localhost:8000/webhook/manual \
     "plan_key": "PROJ-PLAN",
     "build_number": 123,
     "labels": {"cicd_platform": "bamboo"}
+  }'
+```
+
+### Bamboo version check and patch increment
+
+Bamboo has no dedicated “version” REST type. The agent **checks** both the plan variable and the latest build result, then can bump the variable.
+
+This matches [PlanResource](https://docs.atlassian.com/atlassian-bamboo/11.0.8/com/atlassian/bamboo/plugins/rest/build/PlanResource.html), ResultResource, and [QueueResource](https://docs.atlassian.com/bamboo/REST/5.0-SNAPSHOT/#d2e927):
+
+| Step | Atlassian method | HTTP |
+|------|------------------|------|
+| Version check | `getPlanVariable` + latest result | `GET /rest/api/latest/plan/{PROJECT}-{PLAN}/variables/{name}` and `GET /rest/api/latest/result/{PROJECT}-{PLAN}-latest` |
+| Persist bump | `editPlanVariable` (`RestVariable` `{name, value}`) | `PUT /rest/api/latest/plan/{PROJECT}-{PLAN}/variables/{name}` |
+| Queue with override | `QueueResource` | `POST /rest/api/latest/queue/{PROJECT}-{PLAN}?bamboo.variable.{name}=1.4.1` |
+| Specs PR | SCM (GitHub/GitLab/Azure) | `create_cicd_pr` platform=`bamboo` against `BAMBOO_SPECS_REPO` |
+
+Agent tools:
+
+- `bamboo_check_version` — plan variable + latest ResultResource build number
+- `bamboo_increment_version` — read, patch-bump, PUT, optionally queue
+- `patch_bamboo_plan` — same, then always queue (`increment_version=false` queues only)
+- `create_cicd_pr` platform=`bamboo` — PR on the Specs Git repo
+
+Atlassian documents the queue override as `bamboo.variable.myVariable=value` ([resetting variables via REST](https://support.atlassian.com/bamboo/kb/resetting-variables-via-a-rest-api-call-and-dynamic-release-versioning/)). That query param applies to **that build only**; the PUT is what updates the stored plan variable for later builds.
+
+```bash
+curl -X POST http://localhost:8000/webhook/manual \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "cicd",
+    "source": "bamboo",
+    "plan_key": "PROJ-PLAN",
+    "labels": {"cicd_platform": "bamboo", "action": "increment_version"}
   }'
 ```
 
@@ -484,8 +528,9 @@ aws sts get-caller-identity
 | Feature | GitHub | GitLab | Jenkins | Bamboo | Azure DevOps | ArgoCD | AWS | GCP | Azure |
 |---------|--------|--------|---------|--------|--------------|--------|-----|-----|-------|
 | Log Collection | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Retry Pipeline | ❌ | ✅ | ✅ | ✅ | ✅ | N/A | N/A | N/A | N/A |
-| Create PR/MR | ✅ | ✅ | ❌ | ❌ | ⚠️ | N/A | N/A | N/A | N/A |
+| Retry Pipeline | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | N/A | N/A | N/A |
+| Version increment | ❌ | ❌ | ❌ | ✅ | ❌ | N/A | N/A | N/A | N/A |
+| Create PR/MR | ✅ | ✅ | ✅ SCM | ✅ SCM | ✅ | N/A | N/A | N/A | N/A |
 | Restart Service | N/A | N/A | N/A | N/A | N/A | ✅ | ✅ | ✅ | ✅ |
 | Scale Service | N/A | N/A | N/A | N/A | N/A | N/A | ✅ | ✅ | ✅ |
 | Rollback | N/A | N/A | N/A | N/A | N/A | ✅ | N/A | N/A | N/A |

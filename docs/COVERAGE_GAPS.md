@@ -67,7 +67,8 @@ curl -X POST http://localhost:8000/webhook/manual \
 | `k8s` | `namespace`, `pod` |
 | `helm` | `release_name`, `namespace` |
 | `argocd` | `app_name` |
-| `terraform` | `workspace_path` |
+| `observability` | `alertname`, `service` |
+| `data` | `resource_type`, `resource_id` |
 | `cicd` | `repo`, `run_id`, `platform` |
 | `cloud_aws` / `cloud_gcp` / `cloud_azure` | `resource_type`, `resource_id` |
 

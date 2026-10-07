@@ -105,3 +105,30 @@ class GitHubTools:
                 }
             else:
                 return {"error": f"Failed to create PR: {pr_resp.text}"}
+
+    async def rerun_workflow(self, repo: str, run_id: int, failed_jobs_only: bool = True) -> dict:
+        """Re-run a GitHub Actions workflow (failed jobs, or the whole run)."""
+        if not self.token:
+            return {"error": "GITHUB_TOKEN not configured"}
+        suffix = "rerun-failed-jobs" if failed_jobs_only else "rerun"
+        url = f"{self.base}/repos/{repo}/actions/runs/{int(run_id)}/{suffix}"
+        async with httpx.AsyncClient(headers=self.headers, timeout=30) as client:
+            try:
+                resp = await client.post(url)
+            except Exception as e:
+                return {"error": str(e)}
+        if resp.status_code in (201, 204):
+            return {
+                "success": True,
+                "repo": repo,
+                "run_id": int(run_id),
+                "failed_jobs_only": failed_jobs_only,
+                "message": (
+                    f"GitHub Actions run {run_id} failed jobs re-queued"
+                    if failed_jobs_only
+                    else f"GitHub Actions run {run_id} re-queued"
+                ),
+            }
+        return {
+            "error": f"Failed to re-run GitHub Actions run {run_id}: {resp.status_code} {resp.text}"
+        }

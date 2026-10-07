@@ -41,6 +41,21 @@ MUTATING_AGENT_TOOLS = {
     "scale_ecs_service",
     "restart_gce_instance",
     "restart_azure_vm",
+    "restart_cloud_resource",
+    "scale_cloud_service",
+    "cleanup_stale_logs",
+    "install_log_cleanup_cron",
+    "apply_nginx_config",
+    "restart_nginx",
+    "renew_certificates",
+    "apply_security_updates",
+    "bamboo_increment_version",
+    "patch_bamboo_plan",
+    "retry_cicd_pipeline",
+    "create_github_pr",
+    "create_cicd_pr",
+    "update_status_page",
+    "create_snapshot",
 }
 
 
