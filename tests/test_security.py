@@ -120,6 +120,14 @@ class TestWebhookAuth:
         monkeypatch.setenv("WEBHOOK_SECRET", "test-secret")
         assert verify_webhook_request(b'{"type":"server"}', WRONG_WEBHOOK_SIGNATURE) is False
 
+    def test_accepts_gitlab_static_token(self, monkeypatch):
+        from api.webhook_auth import verify_webhook_auth
+
+        monkeypatch.setenv("WEBHOOK_SECRET", "gitlab-secret")
+        assert verify_webhook_auth(b'{"object_kind":"merge_request"}', static_token="gitlab-secret") is True
+        assert verify_webhook_auth(b'{"object_kind":"merge_request"}', static_token="wrong") is False
+        assert verify_webhook_auth(b"{}", signature=None, static_token=None) is False
+
 
 class TestSlackSignature:
     def test_valid_slack_signature(self):

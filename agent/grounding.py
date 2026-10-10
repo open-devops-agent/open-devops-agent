@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Set
 REQUIRES_TOOL_EVIDENCE: Set[str] = {
     "k8s", "cicd", "server", "argocd", "helm", "terraform",
     "cloud_aws", "cloud_gcp", "cloud_azure",
-    "observability", "data",
+    "observability", "data", "code_review",
 }
 
 # Tools that count as evidence-gathering (not just notify)
@@ -41,6 +41,8 @@ EVIDENCE_TOOLS: Set[str] = {
     "kafka_health",
     "elasticsearch_health",
     "redis_health",
+    "fetch_code_change",
+    "list_open_code_changes",
 }
 
 GROUNDING_RULES = """
@@ -89,6 +91,7 @@ REMEDIATION_TOOLS: Set[str] = {
     "update_status_page",
     "assign_incident_commander",
     "create_snapshot",
+    "post_code_review",
 }
 
 SUGGESTION_TOOLS: Set[str] = {"suggest_fix"}

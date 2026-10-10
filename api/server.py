@@ -21,6 +21,7 @@ from agent.classifier import classify_issue
 from api.webhook_auth import (
     get_webhook_secret,
     verify_slack_signature,
+    verify_webhook_auth,
     verify_webhook_request,
 )
 from services.incident_queue import IncidentQueue
@@ -242,8 +243,12 @@ def verify_github_signature(payload: bytes, signature: str) -> bool:
     return verify_webhook_request(payload, signature)
 
 
-def _require_webhook_auth(body: bytes, signature: Optional[str]) -> None:
-    if get_webhook_secret() and not verify_webhook_request(body, signature):
+def _require_webhook_auth(
+    body: bytes,
+    signature: Optional[str] = None,
+    static_token: Optional[str] = None,
+) -> None:
+    if get_webhook_secret() and not verify_webhook_auth(body, signature, static_token):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
 
@@ -369,6 +374,30 @@ async def github_webhook(
             incident_id = await enqueue_incident(context)
             return {"status": "queued", "type": "cicd", "incident_id": incident_id}
 
+    if x_github_event == "pull_request":
+        action = payload.get("action")
+        if action in ("opened", "reopened", "synchronize", "ready_for_review"):
+            pr = payload.get("pull_request") or {}
+            if pr.get("draft"):
+                return {"status": "ignored", "reason": "draft_pr"}
+            context = {
+                "type": "code_review",
+                "source": "github",
+                "scm_platform": "github",
+                "org_id": x_org_id or os.getenv("GITHUB_ORG", os.getenv("ORG_ID", "default")),
+                "repo": payload.get("repository", {}).get("full_name"),
+                "change_id": str(pr.get("number") or ""),
+                "pr_number": pr.get("number"),
+                "title": pr.get("title"),
+                "author": (pr.get("user") or {}).get("login"),
+                "html_url": pr.get("html_url"),
+                "base_ref": (pr.get("base") or {}).get("ref"),
+                "head_ref": (pr.get("head") or {}).get("ref"),
+                "labels": {"pull_request": "true", "code_review": "true"},
+            }
+            incident_id = await enqueue_incident(context)
+            return {"status": "queued", "type": "code_review", "incident_id": incident_id}
+
     return {"status": "ignored", "event": x_github_event}
 
 
@@ -412,6 +441,112 @@ async def alertmanager_webhook(
         queued.append(incident_id)
 
     return {"status": "queued", "incident_ids": queued}
+
+
+@app.post("/webhook/gitlab")
+async def gitlab_webhook(
+    request: Request,
+    x_org_id: str = Header(None, alias="X-Org-ID"),
+    x_gitlab_event: str = Header(None, alias="X-Gitlab-Event"),
+    x_gitlab_token: str = Header(None, alias="X-Gitlab-Token"),
+    x_hub_signature_256: str = Header(None),
+    x_webhook_signature: str = Header(None, alias="X-Webhook-Signature"),
+):
+    """GitLab pipeline failures and merge-request events for code review."""
+    body = await request.body()
+    _require_webhook_auth(
+        body,
+        signature=x_hub_signature_256 or x_webhook_signature,
+        static_token=x_gitlab_token,
+    )
+    payload = __import__("json").loads(body)
+    event = (x_gitlab_event or payload.get("object_kind") or "").lower()
+
+    if event in ("merge request hook", "merge_request"):
+        attrs = payload.get("object_attributes") or {}
+        action = (attrs.get("action") or "").lower()
+        if action in ("open", "reopen", "update", "approved") or attrs.get("state") == "opened":
+            if attrs.get("work_in_progress") or attrs.get("draft"):
+                return {"status": "ignored", "reason": "draft_mr"}
+            project = payload.get("project") or {}
+            context = {
+                "type": "code_review",
+                "source": "gitlab",
+                "scm_platform": "gitlab",
+                "org_id": x_org_id or os.getenv("ORG_ID", "default"),
+                "repo": str(project.get("id") or project.get("path_with_namespace") or ""),
+                "change_id": str(attrs.get("iid") or ""),
+                "mr_iid": attrs.get("iid"),
+                "title": attrs.get("title"),
+                "author": (payload.get("user") or {}).get("username"),
+                "html_url": attrs.get("url"),
+                "base_ref": attrs.get("target_branch"),
+                "head_ref": attrs.get("source_branch"),
+                "labels": {"merge_request": "true", "code_review": "true"},
+            }
+            incident_id = await enqueue_incident(context)
+            return {"status": "queued", "type": "code_review", "incident_id": incident_id}
+
+    if event in ("pipeline hook", "pipeline"):
+        attrs = payload.get("object_attributes") or {}
+        if attrs.get("status") == "failed":
+            project = payload.get("project") or {}
+            context = {
+                "type": "cicd",
+                "source": "gitlab_ci",
+                "org_id": x_org_id or os.getenv("ORG_ID", "default"),
+                "project_id": str(project.get("id") or ""),
+                "pipeline_id": attrs.get("id"),
+                "labels": {"cicd_platform": "gitlab"},
+            }
+            incident_id = await enqueue_incident(context)
+            return {"status": "queued", "type": "cicd", "incident_id": incident_id}
+
+    return {"status": "ignored", "event": event}
+
+
+@app.post("/webhook/bitbucket")
+async def bitbucket_webhook(
+    request: Request,
+    x_org_id: str = Header(None, alias="X-Org-ID"),
+    x_event_key: str = Header(None, alias="X-Event-Key"),
+    x_hub_signature_256: str = Header(None),
+    x_webhook_signature: str = Header(None, alias="X-Webhook-Signature"),
+):
+    """Bitbucket Cloud pull-request events for code review."""
+    body = await request.body()
+    _require_webhook_auth(body, x_hub_signature_256 or x_webhook_signature)
+    payload = __import__("json").loads(body)
+    event = (x_event_key or "").lower()
+    if event.startswith("pullrequest:") or payload.get("pullrequest"):
+        pr = payload.get("pullrequest") or {}
+        if pr.get("draft") or (pr.get("state") or "").upper() == "DRAFT":
+            return {"status": "ignored", "reason": "draft_pr"}
+        repo = payload.get("repository") or {}
+        workspace = (repo.get("workspace") or {}).get("slug") or ""
+        slug = repo.get("slug") or repo.get("name") or ""
+        full = f"{workspace}/{slug}" if workspace and slug else slug
+        context = {
+            "type": "code_review",
+            "source": "bitbucket",
+            "scm_platform": "bitbucket",
+            "org_id": x_org_id or os.getenv("ORG_ID", "default"),
+            "repo": full,
+            "change_id": str(pr.get("id") or ""),
+            "pr_number": pr.get("id"),
+            "title": pr.get("title"),
+            "author": (pr.get("author") or {}).get("display_name"),
+            "html_url": (pr.get("links") or {}).get("html", {}).get("href"),
+            "base_ref": ((pr.get("destination") or {}).get("branch") or {}).get("name"),
+            "head_ref": ((pr.get("source") or {}).get("branch") or {}).get("name"),
+            "labels": {"pull_request": "true", "code_review": "true"},
+        }
+        if not context["change_id"] or not context["repo"]:
+            return {"status": "ignored", "reason": "missing_pr_fields"}
+        incident_id = await enqueue_incident(context)
+        return {"status": "queued", "type": "code_review", "incident_id": incident_id}
+
+    return {"status": "ignored", "event": event}
 
 
 @app.post("/webhook/manual")

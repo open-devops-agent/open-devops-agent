@@ -50,6 +50,32 @@ def verify_webhook_request(payload: bytes, signature: Optional[str]) -> bool:
     return verify_hmac_sha256_signature(payload, signature, secret)
 
 
+def verify_static_webhook_token(token: Optional[str], secret: Optional[str] = None) -> bool:
+    """GitLab-style shared secret (X-Gitlab-Token), compared in constant time."""
+    expected = secret if secret is not None else get_webhook_secret()
+    if not expected:
+        return True
+    if not token:
+        return False
+    return _signatures_equal(expected, token)
+
+
+def verify_webhook_auth(
+    payload: bytes,
+    signature: Optional[str] = None,
+    static_token: Optional[str] = None,
+) -> bool:
+    """Accept HMAC signature or a static token (GitLab Secret token)."""
+    secret = get_webhook_secret()
+    if not secret:
+        return True
+    if signature and verify_hmac_sha256_signature(payload, signature, secret):
+        return True
+    if static_token and verify_static_webhook_token(static_token, secret):
+        return True
+    return False
+
+
 def get_slack_signing_secret() -> str:
     return os.getenv("SLACK_SIGNING_SECRET", "")
 

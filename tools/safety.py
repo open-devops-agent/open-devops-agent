@@ -56,6 +56,7 @@ MUTATING_AGENT_TOOLS = {
     "create_cicd_pr",
     "update_status_page",
     "create_snapshot",
+    "post_code_review",
 }
 
 

@@ -13,6 +13,47 @@ This guide explains how to configure and use the DevOps AI Agent with multiple C
 
 ---
 
+## Code review (any git host)
+
+The agent can review pull/merge requests on **GitHub, GitLab, Bitbucket Cloud, Azure DevOps**, or a **local git clone** (`platform=git`).
+
+| Tool | Purpose |
+|------|---------|
+| `fetch_code_change` | Load PR/MR metadata, file list, unified diff, heuristic secret/risk findings |
+| `post_code_review` | Post summary (+ optional inline comments). Never merges. Default `COMMENT` |
+| `list_open_code_changes` | List open PRs/MRs |
+
+**Webhooks:** `POST /webhook/github` (`pull_request`), `POST /webhook/gitlab` (merge request), `POST /webhook/bitbucket` (pullrequest). Or manual:
+
+```bash
+curl -X POST http://localhost:8000/webhook/manual \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "code_review",
+    "scm_platform": "github",
+    "repo": "acme/app",
+    "change_id": "42"
+  }'
+```
+
+Local / any repo without a PR API:
+
+```bash
+curl -X POST http://localhost:8000/webhook/manual \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "code_review",
+    "scm_platform": "git",
+    "workspace_path": "/path/to/clone",
+    "base_ref": "origin/main",
+    "head_ref": "HEAD"
+  }'
+```
+
+Posting is dry-run unless `CODE_REVIEW_AUTO_POST=true` (or `AUTO_APPLY=true`) and `dry_run=false`. Approvals require `CODE_REVIEW_ALLOW_APPROVE=true`.
+
+---
+
 ## CI/CD Platforms
 
 The agent now supports **5 CI/CD platforms**:

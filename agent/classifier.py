@@ -20,6 +20,7 @@ def classify_issue(alertname: str, labels: dict) -> str:
         - terraform: Terraform/IaC drift and validation (read-only)
         - observability: SLO, metrics, traces, synthetics, on-call, status page
         - data: databases, snapshots/DR, Kafka, Elasticsearch, Redis
+        - code_review: pull/merge request review on GitHub/GitLab/Bitbucket/Azure/local git
     """
     name = alertname.lower()
 
@@ -55,6 +56,11 @@ def classify_issue(alertname: str, labels: dict) -> str:
         "kafka", "elasticsearch", "opensearch", "consumerlag", "consumer-lag",
         "snapshot", "backup", "restore", "failover", "wal", "replication slot",
     ]
+
+    code_review_keywords = [
+        "code review", "codereview", "pull_request", "pull request", "merge_request",
+        "merge request", "pr opened", "pr updated", "mr opened", "bitbucket pr",
+    ]
     
     aws_keywords = [
         "ec2", "ecs", "eks", "fargate", "lambda", "rds", "aws", "cloudwatch",
@@ -85,6 +91,8 @@ def classify_issue(alertname: str, labels: dict) -> str:
         return "observability"
     if any(k in name for k in data_keywords):
         return "data"
+    if any(k in name for k in code_review_keywords):
+        return "code_review"
     
     # Check CI/CD before K8s (to catch "deployment" in CICD context)
     if any(k in name for k in cicd_keywords):
@@ -129,6 +137,14 @@ def classify_issue(alertname: str, labels: dict) -> str:
         return "observability"
     if labels.get("kafka") or labels.get("elasticsearch") or labels.get("snapshot_id"):
         return "data"
+    if (
+        labels.get("pull_request")
+        or labels.get("merge_request")
+        or labels.get("pr_number")
+        or labels.get("mr_iid")
+        or labels.get("code_review")
+    ):
+        return "code_review"
     if labels.get("cloud_provider"):
         cloud = labels["cloud_provider"].lower()
         if "aws" in cloud:
