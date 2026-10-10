@@ -28,7 +28,7 @@ class TestDiskPolicy:
 
     def test_rejects_live_logs_and_unknown_paths(self):
         assert classify_cleanup_target("/var/log/nginx/access.log")["status"] == "rejected"
-        assert classify_cleanup_target("/tmp/scratch.bin")["status"] == "rejected"
+        assert classify_cleanup_target("/var/cache/scratch.bin")["status"] == "rejected"
         assert classify_cleanup_target("/var/log/production.log.1")["status"] == "protected"
 
     def test_extra_protected_prefixes(self, monkeypatch):

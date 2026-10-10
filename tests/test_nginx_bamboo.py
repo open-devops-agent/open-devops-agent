@@ -71,7 +71,7 @@ class TestNginxTools:
     @pytest.mark.asyncio
     async def test_rejects_config_outside_etc_nginx(self):
         result = await NginxTools(runner=AsyncMock()).apply_nginx_config(
-            "/tmp/evil.conf", "x"
+            "/opt/evil.conf", "x"
         )
         assert result["blocked"] is True
 
