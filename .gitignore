@@ -89,3 +89,4 @@ docker-compose.override.yml
 .dmypy.json
 dmypy.json
 .pyre/
+.review-worktrees/
