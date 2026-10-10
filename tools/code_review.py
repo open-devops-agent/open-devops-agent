@@ -25,11 +25,158 @@ MAX_DIFF_CHARS = int(os.getenv("CODE_REVIEW_MAX_DIFF_CHARS", "80000"))
 MAX_FILES = int(os.getenv("CODE_REVIEW_MAX_FILES", "40"))
 
 _SECRET_PATTERNS = (
-    (re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"][^'\"]{8,}"), "Possible hard-coded secret"),
+    # Generic hard-coded credentials / "open secrets" in source
+    (
+        re.compile(
+            r"(?i)(api[_-]?key|api[_-]?secret|access[_-]?key|secret[_-]?key|client[_-]?secret|"
+            r"auth[_-]?token|access[_-]?token|refresh[_-]?token|private[_-]?key|"
+            r"password|passwd|pwd|credentials?)\s*[:=]\s*['\"][^'\"]{6,}['\"]"
+        ),
+        "Possible hard-coded secret or credential",
+    ),
+    (
+        re.compile(
+            r"(?i)^\s*(export\s+)?(AWS_|GCP_|AZURE_|GOOGLE_|DATABASE_|DB_|REDIS_|MONGO_|"
+            r"MYSQL_|POSTGRES_|JWT_|SECRET_|TOKEN_|PASSWORD_|PRIVATE_)[A-Z0-9_]+\s*=\s*\S+"
+        ),
+        "Possible secret in env-style assignment (.env / shell export)",
+    ),
+    # Cloud / SaaS token formats
     (re.compile(r"AKIA[0-9A-Z]{16}"), "Possible AWS access key id"),
-    (re.compile(r"-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----"), "Private key material in diff"),
-    (re.compile(r"(?i)ghp_[A-Za-z0-9]{20,}"), "Possible GitHub personal access token"),
-    (re.compile(r"(?i)glpat-[A-Za-z0-9_\-]{20,}"), "Possible GitLab personal access token"),
+    (
+        re.compile(r"(?i)(ASIA|ABIA|ACCA)[0-9A-Z]{16}"),
+        "Possible AWS temporary/related access key id",
+    ),
+    (
+        re.compile(r"(?i)aws_secret_access_key\s*[:=]\s*['\"]?[A-Za-z0-9/+=]{30,}"),
+        "Possible AWS secret access key",
+    ),
+    (
+        re.compile(r"AIza[0-9A-Za-z\-_]{35}"),
+        "Possible Google API key",
+    ),
+    (
+        re.compile(r"(?i)ya29\.[0-9A-Za-z\-_]+"),
+        "Possible Google OAuth access token",
+    ),
+    (
+        re.compile(r"(?i)hooks\.slack\.com/services/[A-Za-z0-9+/]+"),
+        "Possible Slack incoming webhook URL (open secret)",
+    ),
+    (
+        re.compile(r"(?i)xox[baprs]-[0-9A-Za-z-]{10,}"),
+        "Possible Slack bot/user token",
+    ),
+    (
+        re.compile(r"(?i)ghp_[A-Za-z0-9]{20,}"),
+        "Possible GitHub personal access token",
+    ),
+    (
+        re.compile(r"(?i)github_pat_[A-Za-z0-9_]{20,}"),
+        "Possible GitHub fine-grained personal access token",
+    ),
+    (
+        re.compile(r"(?i)gho_[A-Za-z0-9]{20,}"),
+        "Possible GitHub OAuth access token",
+    ),
+    (
+        re.compile(r"(?i)ghu_[A-Za-z0-9]{20,}"),
+        "Possible GitHub user-to-server token",
+    ),
+    (
+        re.compile(r"(?i)ghs_[A-Za-z0-9]{20,}"),
+        "Possible GitHub server-to-server token",
+    ),
+    (
+        re.compile(r"(?i)ghr_[A-Za-z0-9]{20,}"),
+        "Possible GitHub refresh token",
+    ),
+    (
+        re.compile(r"(?i)glpat-[A-Za-z0-9_\-]{20,}"),
+        "Possible GitLab personal access token",
+    ),
+    (
+        re.compile(r"(?i)glrt-[A-Za-z0-9_\-]{20,}"),
+        "Possible GitLab runner / refresh token",
+    ),
+    (
+        re.compile(r"(?i)npm_[A-Za-z0-9]{30,}"),
+        "Possible npm access token",
+    ),
+    (
+        re.compile(r"(?i)pypi-[A-Za-z0-9_\-]{20,}"),
+        "Possible PyPI API token",
+    ),
+    (
+        re.compile(r"(?i)sk_live_[0-9a-zA-Z]{20,}"),
+        "Possible Stripe live secret key",
+    ),
+    (
+        re.compile(r"(?i)rk_live_[0-9a-zA-Z]{20,}"),
+        "Possible Stripe live restricted key",
+    ),
+    (
+        re.compile(r"(?i)SK[0-9a-fA-F]{32}"),
+        "Possible Twilio API key / account secret",
+    ),
+    (
+        re.compile(r"(?i)sg\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}"),
+        "Possible SendGrid API key",
+    ),
+    (
+        re.compile(r"(?i)xoxe\.[0-9A-Za-z-]{10,}"),
+        "Possible Slack enterprise token",
+    ),
+    (
+        re.compile(
+            r"(?i)(Bearer\s+[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+|"
+            r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})"
+        ),
+        "Possible JWT / Bearer token in source",
+    ),
+    # Connection strings & URLs with embedded passwords
+    (
+        re.compile(
+            r"(?i)(postgres|postgresql|mysql|mongodb(\+srv)?|redis|amqp|mssql|"
+            r"sqlserver)://[^\s'\"]+:[^\s'\"]+@"
+        ),
+        "Database/broker connection string with embedded credentials",
+    ),
+    (
+        re.compile(
+            r"(?i)(https?|ftp|sftp|ssh)://[^/\s:'\"]+:[^/\s@'\"]+@"
+        ),
+        "URL with embedded username:password (open secret)",
+    ),
+    (
+        re.compile(
+            r"(?i)(connection[_-]?string|conn[_-]?str)\s*[:=]\s*['\"][^'\"]{12,}"
+        ),
+        "Possible connection string secret",
+    ),
+    # Private keys & cert material
+    (
+        re.compile(
+            r"-----BEGIN ([A-Z0-9 ]+)?PRIVATE KEY-----"
+        ),
+        "Private key material in diff",
+    ),
+    (
+        re.compile(r"-----BEGIN OPENSSH PRIVATE KEY-----"),
+        "OpenSSH private key material in diff",
+    ),
+    (
+        re.compile(r"-----BEGIN PGP PRIVATE KEY BLOCK-----"),
+        "PGP private key material in diff",
+    ),
+    # High-entropy looking assignments commonly used for secrets
+    (
+        re.compile(
+            r"(?i)(secret|token|password|api_key|apikey)\s*[:=]\s*"
+            r"['\"]?[A-Za-z0-9+/=_\-]{24,}['\"]?"
+        ),
+        "Possible high-entropy secret assignment",
+    ),
 )
 
 _RISK_PATTERNS = (
@@ -1017,7 +1164,12 @@ def scan_diff_heuristics(diff: str) -> list[dict]:
                         k in lower_msg
                         for k in (
                             "secret",
-                            "key",
+                            "credential",
+                            "password",
+                            "token",
+                            "private key",
+                            "connection string",
+                            "access key",
                             "backdoor",
                             "malware",
                             "webshell",

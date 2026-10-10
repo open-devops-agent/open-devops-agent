@@ -83,6 +83,26 @@ class TestHeuristics:
         assert "secret" in messages.lower() or "key" in messages.lower()
         assert any("rm -rf" in f["message"] for f in findings)
 
+    def test_finds_open_secrets_and_tokens(self):
+        diff = """\
++++ b/.env
+@@ -1,1 +1,8 @@
++AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
++postgres://user:s3cretpass@db.internal:5432/app
++https://hooks.slack.com/services/T000/B000/XXXX
++ghp_abcdefghijklmnopqrstuvwxyz0123456789
++-----BEGIN RSA PRIVATE KEY-----
++password = "hunter2hunter2"
++SK1234567890abcdef1234567890abcdef
+"""
+        findings = scan_diff_heuristics(diff)
+        messages = " ".join(f["message"].lower() for f in findings)
+        assert "env-style" in messages or "secret" in messages
+        assert "connection" in messages or "credential" in messages
+        assert "slack" in messages or "github" in messages or "private key" in messages
+        assert len(findings) >= 4
+        assert any(f["severity"] == "critical" for f in findings)
+
     def test_finds_backdoor_and_malware(self):
         diff = """\
 +++ b/scripts/setup.bat

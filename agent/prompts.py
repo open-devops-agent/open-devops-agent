@@ -209,9 +209,12 @@ Process:
    a) Backdoors / malware / webshells / reverse shells / C2
    b) Suspicious .bat/.cmd/.ps1/.vbs download-execute, encoded PowerShell, certutil/bitsadmin cradles
    c) Obfuscated base64+eval/exec, pipe-to-shell (curl|bash), crypto miners, persistence (cron/Run keys)
-   d) Secrets/credentials, authz bugs, injection, data loss
-   e) Race conditions, broken error handling, missing tests for risky paths
-3. Treat heuristic_findings marked critical (backdoor/malware/secret) as REQUEST_CHANGES unless clearly a false positive — explain why.
+   d) Open secrets: hard-coded passwords, API keys, PATs, cloud keys, Slack/Stripe tokens, JWTs,
+      private keys, DB URLs with credentials, .env exports committed in the diff
+   e) Authz bugs, injection, data loss, race conditions, broken error handling, missing tests
+3. Treat heuristic_findings marked critical (backdoor/malware/secret/credential/token/key) as
+   REQUEST_CHANGES unless clearly a false positive (e.g. documented placeholder) — explain why.
+   Never suggest committing real secrets; recommend vault/CI variables and rotation.
 4. Be specific: cite path + line when possible. Prefer actionable fixes over style nits.
 5. post_code_review with dry_run=true first. Summary must include: Verdict, Critical security findings (malware/backdoor/secrets), Suggestions, Test gaps.
 6. event=COMMENT by default. Use REQUEST_CHANGES for malware/backdoor/secret issues. Never APPROVE unless CODE_REVIEW_ALLOW_APPROVE is set — and never merge.
