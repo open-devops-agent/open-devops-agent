@@ -1,7 +1,8 @@
 """
 Multi-platform code review: GitHub, GitLab, Bitbucket, Azure DevOps, or any local git repo.
 
-Fetch PR/MR (or git) diffs, run lightweight heuristic checks, and post review comments.
+Fetch PR/MR (or git) diffs, run lightweight heuristic checks (secrets, backdoors,
+malware cradles, BAT/CMD/PowerShell, destructive ops), and post review comments.
 Never merges. Default review event is COMMENT (not APPROVE).
 """
 from __future__ import annotations
@@ -37,6 +38,109 @@ _RISK_PATTERNS = (
     (re.compile(r"(?i)kubectl\s+delete\s+(ns|namespace|pv)\b"), "Cluster-destructive kubectl delete"),
     (re.compile(r"(?i)--privileged\b"), "Privileged container flag"),
     (re.compile(r"(?i)ALLOW_HTTP|insecure.?skip.?verify\s*[:=]\s*true"), "TLS verification disabled"),
+)
+
+# Backdoors, malware cradles, suspicious BAT/CMD/PowerShell, reverse shells, web shells.
+_MALWARE_PATTERNS = (
+    # Reverse / bind shells
+    (
+        re.compile(
+            r"(?i)(bash\s+-i\s+>&\s*/dev/tcp/|nc\s+(-e|--exec)|ncat\s+.*-e|"
+            r"/dev/tcp/\d|/dev/udp/\d|socat\s+.*EXEC:|mkfifo\s+/tmp/.*nc\s)"
+        ),
+        "Possible reverse/bind shell (backdoor)",
+    ),
+    (
+        re.compile(
+            r"(?i)(socket\.socket\s*\(.*SOCK_STREAM|connect\s*\(\s*\([^)]+\d{1,3}"
+            r"(?:\.\d{1,3}){3})"
+        ),
+        "Possible socket backdoor / C2 connect",
+    ),
+    # Encoded / obfuscated payloads
+    (
+        re.compile(
+            r"(?i)(powershell[^\n]*(-enc|-e\s+|FromBase64String)|"
+            r"IEX\s*\(\s*New-Object\s+Net\.WebClient|"
+            r"Invoke-Expression\s*\(|DownloadString\s*\(|DownloadFile\s*\()"
+        ),
+        "PowerShell download/execute or encoded payload (malware cradle)",
+    ),
+    (
+        re.compile(
+            r"(?i)(base64\s+-d|base64\.b64decode|Buffer\.from\([^,]+,\s*['\"]base64['\"]|"
+            r"eval\s*\(\s*(atob|Buffer|base64)|exec\s*\(\s*base64)"
+        ),
+        "Base64 decode + exec/eval (obfuscated malware)",
+    ),
+    (
+        re.compile(
+            r"(?i)(eval\s*\(\s*(request|req\.|params|query|body|input)|"
+            r"exec\s*\(\s*(request|req\.|params|query|body)|"
+            r"compile\s*\([^)]*['\"]exec['\"])"
+        ),
+        "Dynamic eval/exec of request input (webshell/backdoor)",
+    ),
+    # Windows BAT / CMD malware patterns
+    (
+        re.compile(
+            r"(?i)(bitsadmin\s+/transfer|certutil\s+-urlcache|certutil\s+-decode|"
+            r"curl\s+[^\n]*\|\s*(cmd|powershell|bash)|"
+            r"wget\s+[^\n]*\|\s*(bash|sh|cmd)|"
+            r"mshta\s+https?://|regsvr32\s+/s\s+/n\s+/u\s+/i:|"
+            r"rundll32\s+javascript:|wmic\s+process\s+call\s+create)"
+        ),
+        "Suspicious Windows download/execute (BAT/CMD malware)",
+    ),
+    (
+        re.compile(
+            r"(?i)(reg\s+add\s+.*\\(Run|RunOnce)\\|schtasks\s+/create|"
+            r"New-ScheduledTask|\\\\CurrentVersion\\\\Run)"
+        ),
+        "Persistence via registry Run key or scheduled task",
+    ),
+    # Unix persistence / crypto miners
+    (
+        re.compile(
+            r"(?i)(curl\s+[^\n]*\|\s*(bash|sh)\b|wget\s+[^\n]*-O-?\s*\|\s*(bash|sh)\b|"
+            r"xmrig|minerd\b|stratum\+tcp://|cryptonight)"
+        ),
+        "Pipe-to-shell download or crypto-miner indicator",
+    ),
+    (
+        re.compile(
+            r"(?i)(crontab\s+-e|@reboot\s+(curl|wget|nc|bash\s+-i)|"
+            r"echo\s+[^|]+\|\s*crontab)"
+        ),
+        "Suspicious crontab persistence",
+    ),
+    # Classic webshells / remote code
+    (
+        re.compile(
+            r"(?i)(c99shell|r57shell|FilesMan|WSO\s*shell|"
+            r"assert\s*\(\s*\$_(GET|POST|REQUEST)|"
+            r"system\s*\(\s*\$_(GET|POST|REQUEST)|"
+            r"passthru\s*\(\s*\$_(GET|POST|REQUEST)|"
+            r"shell_exec\s*\(\s*\$_(GET|POST|REQUEST)|"
+            r"preg_replace\s*\(.*/e)"
+        ),
+        "Webshell / remote code execution pattern",
+    ),
+    (
+        re.compile(
+            r"(?i)(__import__\s*\(\s*['\"]os['\"]\s*\)\.system|"
+            r"subprocess\.(call|Popen|run)\s*\([^)]*(/bin/(ba)?sh|cmd\.exe|powershell)|"
+            r"os\.system\s*\(\s*(request|req\.|input\())"
+        ),
+        "Suspicious OS command execution from app code",
+    ),
+    # Dangerous file types added with executable payload hints in path
+    (
+        re.compile(
+            r"(?i)\.(bat|cmd|ps1|vbs|hta|scr|pif)\b"
+        ),
+        "Windows script/executable-type path in change — inspect for malware",
+    ),
 )
 
 
@@ -904,13 +1008,31 @@ def scan_diff_heuristics(diff: str) -> list[dict]:
         if raw.startswith("+") and not raw.startswith("+++"):
             line_no += 1
             text = raw[1:]
-            for pattern, message in _SECRET_PATTERNS + _RISK_PATTERNS:
+            for pattern, message in (
+                _SECRET_PATTERNS + _MALWARE_PATTERNS + _RISK_PATTERNS
+            ):
                 if pattern.search(text):
+                    lower_msg = message.lower()
+                    if any(
+                        k in lower_msg
+                        for k in (
+                            "secret",
+                            "key",
+                            "backdoor",
+                            "malware",
+                            "webshell",
+                            "reverse",
+                            "persistence",
+                            "crypto-miner",
+                            "obfuscated",
+                        )
+                    ):
+                        severity = "critical"
+                    else:
+                        severity = "high"
                     findings.append(
                         {
-                            "severity": "critical"
-                            if "secret" in message.lower() or "key" in message.lower()
-                            else "high",
+                            "severity": severity,
                             "path": current_file,
                             "line": line_no,
                             "message": message,
