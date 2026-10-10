@@ -26,6 +26,13 @@ class CICDTools:
         self.bamboo_password = os.getenv("BAMBOO_PASSWORD", "")
         self.azure_org = os.getenv("AZURE_DEVOPS_ORG", "")
         self.azure_pat = os.getenv("AZURE_DEVOPS_PAT", "")
+        self.bitbucket_user = os.getenv("BITBUCKET_USERNAME", "")
+        self.bitbucket_token = os.getenv("BITBUCKET_APP_PASSWORD", "") or os.getenv(
+            "BITBUCKET_TOKEN", ""
+        )
+        self.bitbucket_api = os.getenv(
+            "BITBUCKET_API_URL", "https://api.bitbucket.org/2.0"
+        ).rstrip("/")
 
     async def retry_pipeline(
         self,
@@ -80,7 +87,7 @@ class CICDTools:
         Create a PR/MR with a fix.
         
         Args:
-            platform: 'github', 'gitlab', 'azure_devops', 'jenkins', 'bamboo'
+            platform: 'github', 'gitlab', 'azure_devops', 'bitbucket', 'jenkins', 'bamboo'
             repo: Repository identifier (Jenkins/Bamboo: SCM repo, not the job/plan key)
             file_path: File to update
             new_content: New file content
@@ -106,6 +113,10 @@ class CICDTools:
                 pr_title,
                 pr_body
             )
+        if platform in ("bitbucket", "bitbucket_cloud"):
+            return await self._create_bitbucket_pr(
+                repo, file_path, new_content, pr_title, pr_body
+            )
         if platform == "jenkins":
             return await self._create_scm_pr(
                 kwargs.get("scm_provider") or os.getenv("JENKINS_SCM_PROVIDER") or "github",
@@ -118,7 +129,7 @@ class CICDTools:
             )
         if platform == "bamboo":
             return await self._create_scm_pr(
-                kwargs.get("scm_provider") or os.getenv("BAMBOO_SCM_PROVIDER") or "github",
+                kwargs.get("scm_provider") or os.getenv("BAMBOO_SCM_PROVIDER") or "bitbucket",
                 kwargs.get("scm_repo") or os.getenv("BAMBOO_SPECS_REPO") or repo,
                 file_path,
                 new_content,
@@ -166,7 +177,16 @@ class CICDTools:
                 pr_title,
                 pr_body,
             )
-        return {"error": f"Unsupported SCM provider {provider!r}. Use github, gitlab, or azure_devops."}
+        if provider in ("bitbucket", "bitbucket_cloud", "bb"):
+            return await self._create_bitbucket_pr(
+                repo, file_path, new_content, pr_title, pr_body
+            )
+        return {
+            "error": (
+                f"Unsupported SCM provider {provider!r}. "
+                "Use github, gitlab, bitbucket, or azure_devops."
+            )
+        }
 
     async def _retry_github_workflow(
         self, repo: str, run_id: int, failed_jobs_only: bool = True
@@ -264,6 +284,133 @@ class CICDTools:
                 else:
                     return {"error": f"Failed to create MR: {mr_resp.status_code}"}
 
+            except Exception as e:
+                return {"error": str(e)}
+
+    # ─── Bitbucket Cloud ──────────────────────────────────────────────────────
+
+    def _bitbucket_auth(self) -> Optional[tuple]:
+        if self.bitbucket_user and self.bitbucket_token:
+            return (self.bitbucket_user, self.bitbucket_token)
+        return None
+
+    def _bitbucket_headers(self) -> dict:
+        if self.bitbucket_token and not self.bitbucket_user:
+            return {"Authorization": f"Bearer {self.bitbucket_token}"}
+        return {}
+
+    async def _create_bitbucket_pr(
+        self,
+        repo: str,
+        file_path: str,
+        new_content: str,
+        title: str,
+        description: str,
+    ) -> dict:
+        """Create a branch, commit a file, and open a Bitbucket Cloud pull request.
+
+        repo format: workspace/repo_slug
+        """
+        if not self.bitbucket_token:
+            return {"error": "BITBUCKET_APP_PASSWORD or BITBUCKET_TOKEN not configured"}
+        if "/" not in (repo or ""):
+            return {"error": "Bitbucket repo must be workspace/repo_slug"}
+
+        from datetime import datetime, timezone
+
+        branch_name = f"devops-ai-fix/{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+        base = f"{self.bitbucket_api}/repositories/{repo}"
+        auth = self._bitbucket_auth()
+        headers = self._bitbucket_headers()
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            try:
+                repo_resp = await client.get(base, auth=auth, headers=headers)
+                if repo_resp.status_code != 200:
+                    return {
+                        "error": (
+                            f"Bitbucket repo not found: {repo_resp.status_code} "
+                            f"{repo_resp.text[:300]}"
+                        )
+                    }
+                mainbranch = (repo_resp.json().get("mainbranch") or {}).get("name") or "main"
+
+                # Create branch from main tip
+                tip = await client.get(
+                    f"{base}/refs/branches/{mainbranch}", auth=auth, headers=headers
+                )
+                if tip.status_code != 200:
+                    return {
+                        "error": f"Failed to read branch {mainbranch}: {tip.status_code}"
+                    }
+                target_hash = ((tip.json().get("target") or {}).get("hash")) or ""
+                if not target_hash:
+                    return {"error": f"No commit hash for branch {mainbranch}"}
+
+                branch_resp = await client.post(
+                    f"{base}/refs/branches",
+                    auth=auth,
+                    headers={**headers, "Content-Type": "application/json"},
+                    json={"name": branch_name, "target": {"hash": target_hash}},
+                )
+                if branch_resp.status_code not in (200, 201):
+                    return {
+                        "error": (
+                            f"Failed to create Bitbucket branch: "
+                            f"{branch_resp.status_code} {branch_resp.text[:300]}"
+                        )
+                    }
+
+                # Commit file via /src (multipart)
+                commit_resp = await client.post(
+                    f"{base}/src",
+                    auth=auth,
+                    headers=headers,
+                    data={
+                        "message": f"fix: {title}",
+                        "branch": branch_name,
+                        file_path: new_content,
+                    },
+                )
+                if commit_resp.status_code not in (200, 201):
+                    return {
+                        "error": (
+                            f"Failed to commit to Bitbucket: "
+                            f"{commit_resp.status_code} {commit_resp.text[:400]}"
+                        )
+                    }
+
+                pr_resp = await client.post(
+                    f"{base}/pullrequests",
+                    auth=auth,
+                    headers={**headers, "Content-Type": "application/json"},
+                    json={
+                        "title": f"[AI Fix] {title}",
+                        "description": (
+                            f"{description}\n\n"
+                            "Opened by the DevOps AI Agent. Review before merging."
+                        ),
+                        "source": {"branch": {"name": branch_name}},
+                        "destination": {"branch": {"name": mainbranch}},
+                        "close_source_branch": True,
+                    },
+                )
+                if pr_resp.status_code not in (200, 201):
+                    return {
+                        "error": (
+                            f"Failed to create Bitbucket PR: "
+                            f"{pr_resp.status_code} {pr_resp.text[:400]}"
+                        )
+                    }
+                pr = pr_resp.json()
+                return {
+                    "success": True,
+                    "pr_id": pr.get("id"),
+                    "pr_url": (pr.get("links") or {}).get("html", {}).get("href"),
+                    "branch": branch_name,
+                    "repository": repo,
+                    "message": f"Bitbucket PR {pr.get('id')} created",
+                }
             except Exception as e:
                 return {"error": str(e)}
 

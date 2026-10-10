@@ -71,7 +71,7 @@ class TestNginxTools:
     @pytest.mark.asyncio
     async def test_rejects_config_outside_etc_nginx(self):
         result = await NginxTools(runner=AsyncMock()).apply_nginx_config(
-            "/tmp/evil.conf", "x"
+            "/opt/evil.conf", "x"
         )
         assert result["blocked"] is True
 
@@ -326,3 +326,46 @@ class TestAzureAndScmPr:
         mocked.assert_awaited()
         assert mocked.await_args.args[0] == "acme/app"
         assert mocked.await_args.args[1] == "Jenkinsfile"
+
+    @pytest.mark.asyncio
+    async def test_bamboo_specs_pr_on_bitbucket(self, monkeypatch):
+        monkeypatch.setenv("BITBUCKET_USERNAME", "bot")
+        monkeypatch.setenv("BITBUCKET_APP_PASSWORD", "secret")
+        monkeypatch.setenv("BAMBOO_SCM_PROVIDER", "bitbucket")
+        monkeypatch.setenv("BAMBOO_SPECS_REPO", "ws/specs")
+
+        repo = MagicMock(status_code=200)
+        repo.json.return_value = {"mainbranch": {"name": "main"}}
+        tip = MagicMock(status_code=200)
+        tip.json.return_value = {"target": {"hash": "abc123"}}
+        branch = MagicMock(status_code=201)
+        commit = MagicMock(status_code=201)
+        pr = MagicMock(status_code=201)
+        pr.json.return_value = {
+            "id": 99,
+            "links": {"html": {"href": "https://bitbucket.org/ws/specs/pull-requests/99"}},
+        }
+
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=[repo, tip])
+        client.post = AsyncMock(side_effect=[branch, commit, pr])
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("tools.cicd_tools.httpx.AsyncClient", return_value=client):
+            result = await CICDTools().create_fix_pr(
+                "bamboo",
+                "APP-PLAN",
+                "bamboo-specs/build.yaml",
+                "plan: fixed\n",
+                "fix bamboo specs",
+                "image tag wrong",
+            )
+
+        assert result["success"] is True
+        assert result["pr_id"] == 99
+        # branch create, commit src, pull request
+        assert client.post.await_count == 3
+        pr_body = client.post.await_args_list[2].kwargs["json"]
+        assert pr_body["source"]["branch"]["name"].startswith("devops-ai-fix/")
+        assert pr_body["destination"]["branch"]["name"] == "main"

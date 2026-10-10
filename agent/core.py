@@ -50,6 +50,7 @@ from tools.nginx_tools import NginxTools
 from tools.security_updates import SecurityUpdates
 from tools.observability import ObservabilityTools
 from tools.data_state import DataStateTools
+from tools.code_review import CodeReviewTools, detect_platform_from_url
 from collectors.database_policy import check_database_access
 from services.incident_store import IncidentStore
 from services.org_docs import OrgDocs
@@ -229,12 +230,23 @@ AGENT_TOOLS = [
     },
     {
         "name": "create_cicd_pr",
-        "description": "Create a PR/MR with a CI/CD config fix. GitHub, GitLab, Azure DevOps. Jenkins/Bamboo open a PR on the SCM repo (Jenkinsfile / bamboo-specs).",
+        "description": (
+            "Create a PR/MR with a CI/CD config fix. "
+            "GitHub, GitLab, Bitbucket, Azure DevOps. "
+            "Jenkins/Bamboo open a PR on the SCM repo (Jenkinsfile / bamboo-specs); "
+            "Bamboo defaults to Bitbucket when BAMBOO_SCM_PROVIDER=bitbucket."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "platform": {"type": "string", "enum": ["github", "gitlab", "azure_devops", "jenkins", "bamboo"]},
-                "repo": {"type": "string", "description": "Git repo (Jenkins: JENKINS_SCM_REPO, Bamboo: BAMBOO_SPECS_REPO)"},
+                "platform": {
+                    "type": "string",
+                    "enum": ["github", "gitlab", "bitbucket", "azure_devops", "jenkins", "bamboo"],
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Git repo (Jenkins: JENKINS_SCM_REPO, Bamboo: BAMBOO_SPECS_REPO as workspace/repo)",
+                },
                 "file_path": {"type": "string"},
                 "new_content": {"type": "string"},
                 "pr_title": {"type": "string"},
@@ -747,6 +759,95 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "name": "fetch_code_change",
+        "description": (
+            "Fetch a pull/merge request (or local git diff) for review. "
+            "Platforms: github, gitlab, bitbucket, azure_devops, git. "
+            "Returns metadata, file list, unified diff, and heuristic secret/risk findings."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string",
+                    "enum": ["github", "gitlab", "bitbucket", "azure_devops", "git"],
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "owner/repo, workspace/repo, or project path id",
+                },
+                "change_id": {
+                    "type": "string",
+                    "description": "PR number / MR iid (ignored for platform=git)",
+                },
+                "project": {"type": "string", "description": "Azure DevOps project"},
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Local clone path when platform=git",
+                },
+                "base_ref": {"type": "string", "description": "Base ref for local git diff"},
+                "head_ref": {"type": "string", "description": "Head ref for local git diff"},
+            },
+            "required": ["platform"],
+        },
+    },
+    {
+        "name": "post_code_review",
+        "description": (
+            "Post a code review summary (and optional inline comments) to a PR/MR. "
+            "Never merges. Default event=COMMENT. dry_run=true unless CODE_REVIEW_AUTO_POST/AUTO_APPLY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string",
+                    "enum": ["github", "gitlab", "bitbucket", "azure_devops", "git"],
+                },
+                "repo": {"type": "string"},
+                "change_id": {"type": "string"},
+                "summary": {"type": "string", "description": "Markdown review body"},
+                "event": {
+                    "type": "string",
+                    "enum": ["COMMENT", "REQUEST_CHANGES", "APPROVE"],
+                    "description": "GitHub review event. APPROVE requires CODE_REVIEW_ALLOW_APPROVE.",
+                },
+                "comments": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "line": {"type": "integer"},
+                            "body": {"type": "string"},
+                        },
+                    },
+                    "description": "Optional inline comments",
+                },
+                "project": {"type": "string"},
+                "dry_run": {"type": "boolean", "description": "Default true."},
+            },
+            "required": ["platform", "repo", "change_id", "summary"],
+        },
+    },
+    {
+        "name": "list_open_code_changes",
+        "description": "List open PRs/MRs on GitHub, GitLab, Bitbucket, or Azure DevOps.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string",
+                    "enum": ["github", "gitlab", "bitbucket", "azure_devops"],
+                },
+                "repo": {"type": "string"},
+                "project": {"type": "string"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["platform", "repo"],
+        },
+    },
 ]
 
 
@@ -829,6 +930,7 @@ class DevOpsAgent:
         self.security_updates = SecurityUpdates()
         self.observability = ObservabilityTools()
         self.data_state = DataStateTools()
+        self.code_review = CodeReviewTools()
         
         self.notifier = SlackNotifier()
         self.fix_verifier = FixVerifier()
@@ -1212,6 +1314,42 @@ class DevOpsAgent:
                         enriched["data_state"] = blocked
                     else:
                         enriched["data_state"] = await self.data_state.check_database_health(rt, rid)
+            elif issue_type == "code_review":
+                platform = (
+                    context.get("scm_platform")
+                    or context.get("platform")
+                    or detect_platform_from_url(context.get("html_url") or context.get("url") or "")
+                )
+                repo = context.get("repo") or context.get("project_id") or ""
+                change_id = (
+                    context.get("change_id")
+                    or context.get("pr_number")
+                    or context.get("pull_number")
+                    or context.get("mr_iid")
+                    or ""
+                )
+                enriched["scm_platform"] = platform
+                if platform == "git" or context.get("workspace_path"):
+                    enriched["code_change"] = await self.code_review.fetch_change(
+                        "git",
+                        repo=repo or (context.get("workspace_path") or ""),
+                        change_id=change_id or "local",
+                        workspace_path=context.get("workspace_path"),
+                        base_ref=context.get("base_ref"),
+                        head_ref=context.get("head_ref"),
+                    )
+                elif repo and change_id:
+                    enriched["code_change"] = await self.code_review.fetch_change(
+                        platform,
+                        repo=repo,
+                        change_id=str(change_id),
+                        project=context.get("project"),
+                    )
+                else:
+                    enriched["code_review_hint"] = (
+                        "Use fetch_code_change with platform+repo+change_id "
+                        "(or platform=git + workspace_path)."
+                    )
             elif issue_type == "server":
                 target_host = context.get("host") or context.get("node")
                 enriched["target_host"] = target_host or "localhost"
@@ -1555,6 +1693,43 @@ class DevOpsAgent:
             elif name == "redis_health":
                 return await self.data_state.redis_health(
                     host=inputs.get("host"), port=int(inputs.get("port") or 6379)
+                )
+            elif name == "fetch_code_change":
+                return await self.code_review.fetch_change(
+                    inputs.get("platform")
+                    or context.get("scm_platform")
+                    or context.get("platform")
+                    or "github",
+                    repo=inputs.get("repo") or context.get("repo") or "",
+                    change_id=str(
+                        inputs.get("change_id")
+                        or context.get("change_id")
+                        or context.get("pr_number")
+                        or context.get("mr_iid")
+                        or ""
+                    ),
+                    project=inputs.get("project") or context.get("project"),
+                    workspace_path=inputs.get("workspace_path") or context.get("workspace_path"),
+                    base_ref=inputs.get("base_ref") or context.get("base_ref"),
+                    head_ref=inputs.get("head_ref") or context.get("head_ref"),
+                )
+            elif name == "post_code_review":
+                return await self.code_review.post_review(
+                    inputs["platform"],
+                    inputs["repo"],
+                    str(inputs["change_id"]),
+                    inputs["summary"],
+                    event=inputs.get("event") or "COMMENT",
+                    comments=inputs.get("comments"),
+                    project=inputs.get("project") or context.get("project"),
+                    dry_run=inputs.get("dry_run", True),
+                )
+            elif name == "list_open_code_changes":
+                return await self.code_review.list_open_changes(
+                    inputs["platform"],
+                    inputs["repo"],
+                    project=inputs.get("project"),
+                    limit=int(inputs.get("limit") or 10),
                 )
             elif name == "scale_cloud_service":
                 return await self.cloud_tools.scale_service(
