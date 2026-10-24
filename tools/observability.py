@@ -7,11 +7,13 @@ on-call, Statuspage updates.
 """
 from __future__ import annotations
 
+import ipaddress
 import os
+import socket
 import time
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 import structlog
@@ -19,6 +21,56 @@ import structlog
 from tools.safety import emergency_stop_block, is_emergency_stop_active
 
 log = structlog.get_logger()
+
+SYNTHETIC_MAX_REDIRECTS = 5
+
+#: Cloud metadata services live in the link-local range.
+_METADATA_NETWORK = ipaddress.ip_network("169.254.0.0/16")
+
+
+def _synthetic_allowlist() -> set:
+    raw = os.getenv("SYNTHETIC_ALLOWED_HOSTS", "")
+    return {host.strip().lower() for host in raw.split(",") if host.strip()}
+
+
+def _blocked_target_reason(url: str) -> Optional[str]:
+    """Return why *url* must not be fetched, or None when it is allowed.
+
+    The URL is model/alert-controlled, so refuse anything that resolves to a
+    loopback, private, link-local or otherwise non-public address: cloud
+    metadata (169.254.169.254), admin endpoints and port scans all look like
+    ordinary GETs from inside the agent's network. Operators can opt specific
+    hosts back in with ``SYNTHETIC_ALLOWED_HOSTS``.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return "Synthetic URL must be http(s)"
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return "Synthetic URL has no host"
+    if host in _synthetic_allowlist():
+        return None
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError as exc:
+        return f"Cannot resolve {host}: {exc}"
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+            or addr.is_unspecified
+            or addr in _METADATA_NETWORK
+        ):
+            return f"{host} resolves to the blocked address {addr}"
+    return None
 
 
 class ObservabilityTools:
@@ -268,13 +320,40 @@ class ObservabilityTools:
         expect_status: int = 200,
         timeout_seconds: float = 10.0,
     ) -> dict:
-        if not url.startswith(("http://", "https://")):
-            return {"error": "Synthetic URL must be http(s)"}
+        reason = _blocked_target_reason(url)
+        if reason:
+            return {"success": False, "url": url, "error": reason, "latency_ms": 0.0}
         started = time.perf_counter()
         owns = self._client is None
         client = await self._http()
+        resp = None
         try:
-            resp = await client.get(url, timeout=timeout_seconds, follow_redirects=True)
+            current = url
+            # Redirects are followed by hand so every hop is re-validated; a
+            # public URL that 302s to 169.254.169.254 must not be fetched.
+            for _hop in range(SYNTHETIC_MAX_REDIRECTS + 1):
+                resp = await client.get(current, timeout=timeout_seconds, follow_redirects=False)
+                location = ""
+                if getattr(resp, "is_redirect", False):
+                    location = (getattr(resp, "headers", None) or {}).get("location", "")
+                if not location:
+                    break
+                current = urljoin(current, location)
+                redirect_reason = _blocked_target_reason(current)
+                if redirect_reason:
+                    return {
+                        "success": False,
+                        "url": url,
+                        "error": f"redirect blocked: {redirect_reason}",
+                        "latency_ms": (time.perf_counter() - started) * 1000,
+                    }
+            else:
+                return {
+                    "success": False,
+                    "url": url,
+                    "error": f"more than {SYNTHETIC_MAX_REDIRECTS} redirects",
+                    "latency_ms": (time.perf_counter() - started) * 1000,
+                }
         except Exception as e:
             return {
                 "success": False,
