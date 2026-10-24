@@ -316,7 +316,10 @@ class SecurityScanner:
                 "cis_benchmark": "CIS-K8s-5.2.6",
             })
 
-        if 'allowprivilegeescalation: false' not in lower.replace(' ', ''):
+        # The text is lowercased but NOT space-stripped here: searching a
+        # space-stripped string for a needle that still contained a space made the
+        # condition always true, so every manifest got a CIS-K8s-5.2.5 false positive.
+        if not re.search(r"allowprivilegeescalation\s*:\s*false", lower):
             findings.append({
                 "type": "cis_allow_privilege_escalation",
                 "severity": "MEDIUM",
