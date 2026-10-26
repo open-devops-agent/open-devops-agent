@@ -39,7 +39,7 @@ dependencies = [
     "PyGithub>=2.3.0",
     "prometheus-client>=0.20.0",
     "python-multipart>=0.0.9",
-    "mcp[cli]>=1.9.0,<2.0.0",
+    "mcp[cli]>=1.9.0,<3.0.0",
 ]
 
 [project.optional-dependencies]

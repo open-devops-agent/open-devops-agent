@@ -14,7 +14,7 @@ structlog>=24.2.0
 python-multipart>=0.0.9
 # Capped below 2.0: mcp 2.0.0 removed mcp.server.fastmcp, which
 # devops_mcp/registry.py and devops_mcp/server.py import (issue #34).
-mcp[cli]>=1.9.0,<2.0.0
+mcp[cli]>=1.9.0,<3.0.0
 boto3>=1.34.0
 
 # --- Object Storage (install additional based on STORAGE_PROVIDER) ---
