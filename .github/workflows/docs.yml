@@ -24,7 +24,7 @@ jobs:
       - run: pip install -r requirements-docs.txt
       - run: mkdocs build --strict
       - run: python scripts/check_docs_links.py
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:
           path: site
