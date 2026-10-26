@@ -1130,6 +1130,12 @@ class DevOpsAgent:
                         f"```json\n{json.dumps(verification, indent=2)}\n```",
                         severity="info" if verification.get("verified") else "warning",
                     )
+                if verification is not None and not verification.get("verified"):
+                    # A verification that did not pass means the incident is not
+                    # resolved, whatever the grounding check said. Keeping the
+                    # earlier value here suppressed ESCALATION_ON_UNRESOLVED for
+                    # exactly the fixes that verifiably did not work.
+                    resolved = False
                 result = {
                     "resolved": resolved,
                     "diagnosis": final_text,
