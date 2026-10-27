@@ -255,6 +255,34 @@ class TestFixVerification:
             assert '"status": "success"' in slack_message
 
     @pytest.mark.asyncio
+    async def test_failed_verification_marks_the_incident_unresolved(self):
+        verification_result = {
+            "verified": False, "status": "failed", "incident_type": "k8s",
+            "fix_applied": "run_kubectl", "monitoring_period": 300,
+            "timestamp": "2026-10-24T00:00:00", "checks_performed": [],
+        }
+        with (
+            patch("anthropic.Anthropic") as mock_anthropic,
+            patch("tools.fix_verifier.FixVerifier.verify_fix",
+                  new=AsyncMock(return_value=verification_result)),
+        ):
+            mock_anthropic.return_value.messages.create.side_effect = self._script(
+                "Evidence: get_k8s_context showed OOMKilled on api-pod.\n"
+                "Restarted the deployment via run_kubectl; rollout complete.",
+                ("get_k8s_context", {"namespace": "production"}),
+                ("run_kubectl", {"command": "rollout restart deployment/api -n production"}),
+            )
+            agent, _storage = self._agent()
+            result = await agent.run(
+                {"type": "k8s", "namespace": "production", "pod": "api-pod", "org_id": "test-org"},
+                incident_id="INC-VERIFY-003", resume=False,
+            )
+
+            assert result["fix_applied"] is True
+            assert result["verification"] == verification_result
+            assert result["resolved"] is False, "a failed verification must not be reported as resolved"
+
+    @pytest.mark.asyncio
     async def test_suggestions_only_skips_verification(self):
         with (
             patch("anthropic.Anthropic") as mock_anthropic,
