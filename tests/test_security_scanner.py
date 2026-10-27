@@ -30,6 +30,21 @@ def test_cis_compliance_detects_privileged(scanner):
     assert "cis_privileged_container" in types
 
 
+@pytest.mark.parametrize(
+    ("manifest", "expected"),
+    [
+        ("securityContext:\\n  allowPrivilegeEscalation: false\\n", False),
+        ("securityContext:\\n  allowPrivilegeEscalation:  false\\n", False),
+        ("securityContext:\\n  allowPrivilegeEscalation: true\\n", True),
+        ("securityContext:\\n  runAsNonRoot: true\\n", True),
+    ],
+)
+def test_cis_allow_privilege_escalation_finding(scanner, manifest, expected):
+    findings = scanner._check_cis_compliance(manifest)
+    hits = [f for f in findings if f["type"] == "cis_allow_privilege_escalation"]
+    assert bool(hits) is expected, findings
+
+
 def test_soc2_detects_http(scanner):
     findings = scanner._check_soc2_compliance("url: http://example.com/api")
     assert any(f["type"] == "soc2_unencrypted_transport" for f in findings)

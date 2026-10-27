@@ -1130,6 +1130,12 @@ class DevOpsAgent:
                         f"```json\n{json.dumps(verification, indent=2)}\n```",
                         severity="info" if verification.get("verified") else "warning",
                     )
+                if verification is not None and not verification.get("verified"):
+                    # A verification that did not pass means the incident is not
+                    # resolved, whatever the grounding check said. Keeping the
+                    # earlier value here suppressed ESCALATION_ON_UNRESOLVED for
+                    # exactly the fixes that verifiably did not work.
+                    resolved = False
                 result = {
                     "resolved": resolved,
                     "diagnosis": final_text,
@@ -1304,7 +1310,13 @@ class DevOpsAgent:
                     log_text = (
                         entry.get("logs") or entry.get("console_log") or entry.get("build_log") or ""
                     )
-                    if not re.search(r"^Step \d+(?:/\d+)?[ \t]*:", log_text, re.MULTILINE):
+                    if not re.search(
+                        r"^(?:\d{4}-\d\d-\d\dT[\d:.]+Z )?Step \d+(?:/\d+)?[ \t]*:"
+                        r"|^(?:\d{4}-\d\d-\d\dT[\d:.]+Z )?#\d+ \[\d+/\d+\]"
+                        r"|failed to solve:",
+                        log_text,
+                        re.MULTILINE,
+                    ):
                         continue
                     build_error = parse_build_error(scrub_text(log_text))
                     if build_error["errors"]:

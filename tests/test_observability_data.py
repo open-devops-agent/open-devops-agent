@@ -73,13 +73,73 @@ class TestObservability:
         assert result["error_budget_remaining"] < 1
 
     @pytest.mark.asyncio
-    async def test_synthetic(self):
+    async def test_synthetic(self, monkeypatch):
+        # The guard resolves the host; keep this plumbing test off the network.
+        monkeypatch.setenv("SYNTHETIC_ALLOWED_HOSTS", "example.com")
         resp = FakeResp(200, {})
         client = FakeClient(resp)
         tools = ObservabilityTools(client=client)
         result = await tools.run_synthetic("https://example.com/health")
         assert result["success"] is True
         assert result["status_code"] == 200
+
+    @pytest.mark.asyncio
+    async def test_synthetic_blocks_cloud_metadata(self):
+        tools = ObservabilityTools(client=FakeClient(FakeResp(200, {})))
+        result = await tools.run_synthetic("http://169.254.169.254/latest/meta-data/")
+        assert result["success"] is False
+        assert "blocked address" in result["error"]
+        assert result["latency_ms"] == 0.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1:8080/health",
+            "http://localhost:8080/health",
+            "http://10.1.2.3/health",
+            "http://192.168.1.10/health",
+            "http://[::1]/health",
+        ],
+    )
+    async def test_synthetic_blocks_loopback_and_private_addresses(self, url):
+        tools = ObservabilityTools(client=FakeClient(FakeResp(200, {})))
+        result = await tools.run_synthetic(url)
+        assert result["success"] is False
+        assert "blocked address" in result["error"], result
+
+    @pytest.mark.asyncio
+    async def test_synthetic_allowlist_opts_a_host_back_in(self, monkeypatch):
+        monkeypatch.setenv("SYNTHETIC_ALLOWED_HOSTS", "127.0.0.1")
+        tools = ObservabilityTools(client=FakeClient(FakeResp(200, {})))
+        result = await tools.run_synthetic("http://127.0.0.1:8080/health")
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_synthetic_revalidates_every_redirect_hop(self, monkeypatch):
+        # Let the first hop through so the redirect target is what gets refused.
+        monkeypatch.setenv("SYNTHETIC_ALLOWED_HOSTS", "public.example")
+
+        class RedirectingClient:
+            def __init__(self):
+                self.calls = []
+
+            async def get(self, url, params=None, headers=None, timeout=None, follow_redirects=None):
+                self.calls.append(url)
+                first = FakeResp(302, {})
+                first.is_redirect = True
+                first.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
+                return first
+
+            async def aclose(self):
+                return None
+
+        client = RedirectingClient()
+        tools = ObservabilityTools(client=client)
+        result = await tools.run_synthetic("https://public.example/health")
+        assert result["success"] is False
+        assert result["error"].startswith("redirect blocked:")
+        assert len(client.calls) == 1, "the blocked hop must never be fetched"
 
     @pytest.mark.asyncio
     async def test_oncall_roster(self, monkeypatch):
