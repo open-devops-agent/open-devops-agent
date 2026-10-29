@@ -479,6 +479,13 @@ including when execution fails or is cancelled. Buttons created before this
 organisation context was added must be requested again; callbacks without it
 return HTTP 400 instead of selecting an organisation implicitly.
 
+**Who can approve:** set `SLACK_APPROVER_IDS` to a comma-separated list of Slack user IDs (globally, or
+per org with `PUT /orgs/{org_id}/config`; the org's value wins). A click from anyone else gets an
+ephemeral "not an approver" reply and nothing runs. Without the setting, any channel member can approve
+and a warning is logged. Every approval, rejection and refusal is stored as an
+`approval-<timestamp>-<decision>.json` incident log with the Slack user ID and name and the command,
+and the confirmation message names the approver.
+
 **Content-Type:** `application/x-www-form-urlencoded`
 
 **Headers:**
