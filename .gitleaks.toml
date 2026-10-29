@@ -21,3 +21,18 @@ regexes = [
   '''(?i)(dummy|example|placeholder|change[-_]?me|your[-_]|redacted|xxxx|<[^>]+>|\$\{?[A-Z_]+\}?)''',
   '''(?i)(sk-ant|ghp|glpat|xox[bpas])[-_]?(\.\.\.|x{3,}|dummy|test|acme)''',
 ]
+
+[[allowlists]]
+description = "Known placeholder values found in history (verified not secrets)"
+regexTarget = "match"
+regexes = [
+  '''1234567890abcdef''',
+  '''strong-random-[a-z]+>''',
+]
+
+[[allowlists]]
+description = "Secret-detection patterns in the code reviewer and scanners (regex literals, not keys)"
+regexTarget = "line"
+regexes = [
+  '''re\.compile\(\s*r?["']-----BEGIN [A-Z ]*PRIVATE KEY-----''',
+]
