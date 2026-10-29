@@ -266,9 +266,21 @@ pip install -r requirements.txt
 # stdio — for Cursor / Claude Desktop (default)
 devops-agent mcp
 
-# HTTP — for remote clients
-devops-agent mcp --transport streamable-http --port 8090
+# HTTP — for remote clients (requires a token)
+MCP_AUTH_TOKEN=<long random string> devops-agent mcp --transport streamable-http --port 8090
 ```
+
+**Securing HTTP transports.** `sse` and `streamable-http` refuse to start without `MCP_AUTH_TOKEN`.
+Every request must send `Authorization: Bearer <MCP_AUTH_TOKEN>`, or it gets 401.
+
+| Setting | Effect |
+|---|---|
+| `MCP_AUTH_TOKEN` | Required bearer token for HTTP transports |
+| `MCP_ORG_ID=acme-corp` | Bind the server to one org: tool calls with another `org_id` are rejected, and calls without one use `acme-corp`. Run one server per tenant on shared infrastructure. |
+| `MCP_ALLOW_CREDENTIAL_WRITE=true` | Expose `configure_org_credentials` over HTTP. It is off by default there, and always available on stdio. |
+| `MCP_AUTH_DISABLED=true` | Local testing only: no token, allowed only when bound to a loopback address |
+
+stdio runs as a local process for one user and needs none of these.
 
 ### Connect from Cursor (or any MCP client)
 

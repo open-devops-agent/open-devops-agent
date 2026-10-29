@@ -53,7 +53,7 @@ Slack actions verify Slack signatures and request timestamps when `SLACK_SIGNING
 
 **Layer 2: Authorization**
 
-Org config, docs and audit routes check a bearer token against `API_ADMIN_TOKEN` (every org) or the caller's org token in `API_ORG_TOKENS`; a token for one org gets 403 on another, and the routes return 503 when no token is configured ([api/api_auth.py](api/api_auth.py)). There are no finer-grained roles, and the MCP network transports are not yet covered (#116). Keep deployment-level access controls in place as well.
+Org config, docs and audit routes check a bearer token against `API_ADMIN_TOKEN` (every org) or the caller's org token in `API_ORG_TOKENS`; a token for one org gets 403 on another, and the routes return 503 when no token is configured ([api/api_auth.py](api/api_auth.py)). There are no finer-grained roles. The MCP server's `sse`/`streamable-http` transports require `MCP_AUTH_TOKEN`, can be bound to one org with `MCP_ORG_ID`, and only expose `configure_org_credentials` with `MCP_ALLOW_CREDENTIAL_WRITE=true` ([devops_mcp/auth.py](devops_mcp/auth.py)). Keep deployment-level access controls in place as well.
 
 **Layer 3: Encryption**
 

@@ -6,7 +6,9 @@ Exposes DevOps remediation tools, incident queue APIs, and org docs to any MCP c
 
 Usage:
     devops-agent mcp                    # stdio (Cursor / Claude Desktop)
-    devops-agent mcp --transport sse --port 8090
+    MCP_AUTH_TOKEN=... devops-agent mcp --transport sse --port 8090
+
+Network transports (sse, streamable-http) require MCP_AUTH_TOKEN; see devops_mcp/auth.py.
 """
 from __future__ import annotations
 
@@ -17,6 +19,7 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from agent.core import AGENT_TOOLS, DevOpsAgent
+from devops_mcp.auth import check_network_auth, credential_writes_allowed, protect_http_apps
 from devops_mcp.registry import register_agent_tools, register_platform_tools, register_resources
 from services.incident_queue import IncidentQueue
 from services.incident_store import IncidentStore
@@ -41,7 +44,7 @@ Org runbooks: list_org_docs / get_org_doc. Audit history: get_incident_audit.
 """
 
 
-def create_mcp_server(host: str, port: int) -> FastMCP:
+def create_mcp_server(host: str, port: int, transport: str = "stdio") -> FastMCP:
     mcp = FastMCP(
         name="devops-ai-agent",
         instructions=INSTRUCTIONS,
@@ -56,7 +59,15 @@ def create_mcp_server(host: str, port: int) -> FastMCP:
     org_config = OrgConfig()
 
     register_agent_tools(mcp, agent)
-    register_platform_tools(mcp, agent, incident_queue, incident_store, org_docs, org_config)
+    register_platform_tools(
+        mcp,
+        agent,
+        incident_queue,
+        incident_store,
+        org_docs,
+        org_config,
+        allow_credential_writes=credential_writes_allowed(transport),
+    )
     register_resources(mcp, incident_store, org_docs)
 
     log.info(
@@ -97,7 +108,12 @@ def run_mcp(
         else:
             os.environ.setdefault("FASTMCP_PORT", "8090")
             port = int(os.environ["FASTMCP_PORT"])
-        mcp = create_mcp_server(host=host, port=port)
+        token = check_network_auth(host)
+        mcp = create_mcp_server(host=host, port=port, transport=transport)
+        if token:
+            protect_http_apps(mcp, token)
+        else:
+            log.warning("MCP_AUTH_DISABLED=true: MCP over HTTP is unauthenticated (loopback only)")
         mcp.run(transport=transport)
         return
 
