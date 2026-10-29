@@ -1,0 +1,23 @@
+# gitleaks configuration (used by .github/workflows/secret-scan.yml).
+# Extends the default rules; only adds allowlists for test fixtures and
+# documentation placeholders. Never allowlist a real credential: rotate it.
+
+title = "open-devops-agent"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures: fake tokens used to exercise scanners, scrubbers and auth"
+paths = [
+  '''^tests/''',
+  '''(?:^|/)tests?/fixtures/''',
+]
+
+[[allowlists]]
+description = "Obvious placeholders in docs and examples"
+regexTarget = "match"
+regexes = [
+  '''(?i)(dummy|example|placeholder|change[-_]?me|your[-_]|redacted|xxxx|<[^>]+>|\$\{?[A-Z_]+\}?)''',
+  '''(?i)(sk-ant|ghp|glpat|xox[bpas])[-_]?(\.\.\.|x{3,}|dummy|test|acme)''',
+]
