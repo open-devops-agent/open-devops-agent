@@ -11,6 +11,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from uuid import uuid4
 from typing import Any, Dict, List, Optional, Union
 
 import structlog
@@ -33,6 +34,7 @@ from services.background_lock import (
     acquire_background_worker_lock,
     release_background_worker_lock,
 )
+from services.alert_dedupe import AlertDeduper
 from services.incident_queue import IncidentQueue
 from services.incident_store import IncidentStore
 from services.org_docs import OrgDocs
@@ -50,6 +52,7 @@ log = structlog.get_logger()
 agent = DevOpsAgent()
 notifier = SlackNotifier()
 incident_queue = IncidentQueue()
+alert_deduper = AlertDeduper()
 incident_store = IncidentStore()
 org_docs = OrgDocs()
 org_config = OrgConfig()
@@ -493,6 +496,24 @@ def _alert_context(alert: dict, source: str, x_org_id: Optional[str]) -> dict:
     }
 
 
+async def _enqueue_alert(alert: dict, context: dict, queued: list, duplicates: list) -> None:
+    """Enqueue one firing alert unless it repeats a recent notification (#124)."""
+    org = _org_id(context)
+    incident_id = f"INC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:6]}"
+    claimed, existing = alert_deduper.claim(org, alert, incident_id)
+    if not claimed:
+        duplicates.append(existing)
+        return
+    queued.append(await enqueue_incident(context, incident_id=incident_id))
+
+
+def _alert_response(queued: list, duplicates: list) -> dict:
+    response = {"status": "queued" if queued or not duplicates else "duplicate", "incident_ids": queued}
+    if duplicates:
+        response["duplicate_of"] = duplicates
+    return response
+
+
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(
     request: Request,
@@ -510,15 +531,14 @@ async def alertmanager_webhook(
     )
 
     payload = _parse_json_body(body)
-    queued = []
+    queued, duplicates = [], []
 
     for alert in payload.get("alerts", []):
         if alert.get("status") != "firing":
             continue
-        incident_id = await enqueue_incident(_alert_context(alert, "alertmanager", x_org_id))
-        queued.append(incident_id)
+        await _enqueue_alert(alert, _alert_context(alert, "alertmanager", x_org_id), queued, duplicates)
 
-    return {"status": "queued", "incident_ids": queued}
+    return _alert_response(queued, duplicates)
 
 
 @app.post("/webhook/grafana")
@@ -542,7 +562,7 @@ async def grafana_webhook(
     )
 
     payload = _parse_json_body(body)
-    queued = []
+    queued, duplicates = [], []
 
     for alert in payload.get("alerts", []):
         if alert.get("status") != "firing":
@@ -556,9 +576,9 @@ async def grafana_webhook(
                 "runbook_url": (alert.get("annotations") or {}).get("runbook_url"),
             }
         )
-        queued.append(await enqueue_incident(context))
+        await _enqueue_alert(alert, context, queued, duplicates)
 
-    return {"status": "queued", "incident_ids": queued}
+    return _alert_response(queued, duplicates)
 
 
 @app.post("/webhook/gitlab")

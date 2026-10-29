@@ -88,7 +88,7 @@ class IncidentStore:
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.retention_days)
         month_cutoff = cutoff.replace(day=1)
         deleted = 0
-        for category in ("audit", "logs", "checkpoints", "queue", "review_dedupe", "review_claims"):
+        for category in ("audit", "logs", "checkpoints", "queue", "review_dedupe", "review_claims", "alert_dedupe"):
             for key in self.storage.list_keys(self.storage.org_prefix(org_id, category)):
                 entry = self.storage.get_json(key) if category in ("queue", "review_dedupe", "review_claims") else None
                 legacy = category == "queue" and key.startswith(
