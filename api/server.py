@@ -40,7 +40,7 @@ from services.incident_store import IncidentStore
 from services.org_docs import OrgDocs
 from services.escalation import EscalationService, parse_queue_timestamp
 from services.org_config import OrgConfig
-from services.org_context import org_agent_credentials
+from services.org_context import org_agent_credentials, org_credentials
 from services.pii_scrubber import scrub_dict, scrub_text
 from tools.notify import SlackNotifier
 from tools.safety import is_emergency_stop_active
@@ -733,6 +733,9 @@ async def slack_action(
     action = payload.get("actions", [{}])[0]
     action_id = action.get("action_id", "")
     value = action.get("value", "")
+    user = payload.get("user") or {}
+    actor_id = str(user.get("id") or "")
+    actor_name = str(user.get("username") or user.get("name") or "")
 
     if action_id == "approve_action":
         try:
@@ -752,13 +755,77 @@ async def slack_action(
                 status_code=400,
                 detail="Invalid approval; request a new approval with organisation context",
             ) from None
+        approvers = _slack_approvers(org_id)
+        if approvers and actor_id not in approvers:
+            _record_slack_decision(org_id, incident_id, "denied", actor_id, actor_name, cmd)
+            return JSONResponse(
+                {
+                    "response_type": "ephemeral",
+                    "replace_original": False,
+                    "text": (
+                        f"⛔ <@{actor_id}> is not an approver for this organization; nothing was run. "
+                        "Ask someone listed in SLACK_APPROVER_IDS."
+                    ),
+                }
+            )
+        if not approvers:
+            log.warning(
+                "Slack approval accepted without an approver allowlist; set SLACK_APPROVER_IDS",
+                org_id=org_id,
+                approver_id=actor_id,
+            )
+        _record_slack_decision(org_id, incident_id, "approved", actor_id, actor_name, cmd)
         background_tasks.add_task(agent.execute_approved_action, incident_id, cmd, org_id=org_id)
-        return JSONResponse({"text": f"✅ Approved. Executing: `{cmd}`"})
+        return JSONResponse({"text": f"✅ Approved by <@{actor_id}>. Executing: `{cmd}`"})
 
     elif action_id == "reject_action":
-        return JSONResponse({"text": "❌ Action rejected. Incident escalated to on-call."})
+        org_id = os.getenv("ORG_ID", "default")
+        _record_slack_decision(org_id, "PENDING", "rejected", actor_id, actor_name, None)
+        return JSONResponse({"text": f"❌ Rejected by <@{actor_id}>. Incident escalated to on-call."})
 
     return JSONResponse({"text": "Unknown action"})
+
+
+def _slack_approvers(org_id: str) -> set:
+    """Slack user IDs allowed to approve actions for ``org_id`` (empty = no allowlist).
+
+    Read inside the org's credential scope, so SLACK_APPROVER_IDS can be set per
+    org through PUT /orgs/{org_id}/config as well as globally.
+    """
+    with org_credentials(org_id):
+        raw = os.getenv("SLACK_APPROVER_IDS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _record_slack_decision(
+    org_id: str,
+    incident_id: str,
+    decision: str,
+    actor_id: str,
+    actor_name: str,
+    command: Optional[str],
+) -> None:
+    """Keep who approved, rejected or was refused, and for which command."""
+    now = datetime.now(timezone.utc)
+    record = {
+        "decision": decision,
+        "slack_user_id": actor_id,
+        "slack_user_name": actor_name,
+        "org_id": org_id,
+        "incident_id": incident_id,
+        "command": command,
+        "at": now.isoformat(),
+    }
+    log.info("Slack approval decision", **record)
+    try:
+        incident_store.save_log(
+            org_id,
+            incident_id,
+            f"approval-{now.strftime('%Y%m%dT%H%M%S%f')}-{decision}.json",
+            record,
+        )
+    except Exception as exc:  # recording must never block the decision itself
+        log.warning("approval_record_failed", error=str(exc))
 
 
 def _classify_alert(alertname: str, labels: dict) -> str:

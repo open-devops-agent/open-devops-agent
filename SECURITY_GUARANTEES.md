@@ -518,7 +518,7 @@ jq '.timestamp > "2026-06-12T12:00:00Z"' audit.log
 **Highly unlikely with proper configuration:**
 
 - Webhook shared-secret checks require `WEBHOOK_SECRET`; the management API requires `API_ADMIN_TOKEN` or a per-org `API_ORG_TOKENS` token; there is no finer-grained RBAC ([webhook gate](api/server.py#L264), [API handlers](api/server.py#L304)).
-- Slack signature verification requires `SLACK_SIGNING_SECRET` ([Slack verifier](api/webhook_auth.py#L97)).
+- Slack signature verification requires `SLACK_SIGNING_SECRET` ([Slack verifier](api/webhook_auth.py#L97)). Restrict who can click Approve with `SLACK_APPROVER_IDS` (global or per org); each decision is recorded with the Slack user who made it.
 - Configure IP filtering in the deployment network; the API has no IP allowlist middleware ([application setup and routes](api/server.py#L250)).
 - Deploy in private network
 - VPN/bastion access only
