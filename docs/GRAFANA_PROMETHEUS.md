@@ -194,6 +194,7 @@ organization's credentials and docs. Grafana's own numeric `orgId` is ignored.
 |---|---|
 | `401 Invalid signature` | The bearer token doesn't match `WEBHOOK_SECRET`, or Alertmanager is missing `http_config.authorization`. Check that the scheme is `Bearer`, not `Basic`. |
 | `{"status": "queued", "incident_ids": []}` | All alerts in the payload were `resolved`. Only firing alerts are handled. |
+| `{"status": "duplicate", ..., "duplicate_of": [...]}` | A repeat notification of an alert already being handled (same fingerprint and `startsAt` within `ALERT_DEDUPE_WINDOW_SEC`, default 1 hour). This is expected; Alertmanager and Grafana re-send firing alerts. |
 | Incident has no `alert_logs` | `GRAFANA_LOKI_DATASOURCE_UID` / `LOKI_URL` not set, or the alert has none of the labels in the table above. Add a `logql` annotation. |
 | `alert_logs` contains `403 from …` | The Grafana token lacks access to the Loki datasource. Give the service account Viewer role (and datasource permission if you use datasource RBAC). |
 | `alert_logs` contains `400 from …` | Invalid LogQL in the `logql` annotation. Try it in Grafana **Explore** first. |

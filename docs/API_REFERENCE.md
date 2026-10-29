@@ -378,6 +378,17 @@ that order; a `logql` annotation overrides it. The agent can run further LogQL w
 
 **Response 200:** `{"status": "queued", "incident_ids": ["..."]}`
 
+**Repeat notifications** (both alert endpoints): Alertmanager and Grafana re-send a firing alert every
+group/repeat interval and from each HA replica. A delivery with the same `fingerprint` (or the same
+labels when there is none) and the same `startsAt` within `ALERT_DEDUPE_WINDOW_SEC` (default 3600; `0`
+disables) is not queued again; it is listed under `duplicate_of` with the original incident ID. If every
+firing alert was a repeat, `status` is `"duplicate"`. A new `startsAt` (the alert resolved and fired
+again) is a new incident.
+
+```json
+{"status": "duplicate", "incident_ids": [], "duplicate_of": ["INC-20261029100000-a1b2c3"]}
+```
+
 **Response 401:** Missing or invalid bearer token / signature (when `WEBHOOK_SECRET` is set).
 
 ---
