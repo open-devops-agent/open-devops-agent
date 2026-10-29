@@ -11,6 +11,13 @@ from unittest.mock import MagicMock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def mcp_auth_token(monkeypatch):
+    # Network transports refuse to start without a token (#116); these tests
+    # are about bind-address precedence, so provide one.
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "test-mcp-token")
+
+
 @pytest.fixture
 def stubbed_mcp(monkeypatch):
     """Stub only server creation; the os.environ handling in run_mcp runs for real."""

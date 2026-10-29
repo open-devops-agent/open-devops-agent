@@ -37,8 +37,8 @@ curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8000/orgs/acme-corp/
 
 `API_AUTH_DISABLED=true` turns these checks off for local development (a warning is logged at
 startup). For `/audit` the org is `org_id` from the query string, or `ORG_ID` when omitted.
-Tokens are compared in constant time. The MCP server's network transports are not covered by these
-tokens yet (see issue #116).
+Tokens are compared in constant time. The MCP server's HTTP transports use their own
+`MCP_AUTH_TOKEN` (see [README → Start the MCP server](../README.md#start-the-mcp-server)).
 
 `X-Org-ID` is **not** authentication — it only selects the organization (see
 [Org scoping](#org-scoping)) and is optional on every webhook.
