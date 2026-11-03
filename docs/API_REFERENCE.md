@@ -11,6 +11,7 @@ All incident data is **org-scoped** and stored in cloud object storage (S3, MinI
 | Endpoint group | Auth |
 |----------------|------|
 | `/health` | None (liveness probe) |
+| `/metrics` | None, or `Authorization: Bearer <METRICS_TOKEN>` when `METRICS_TOKEN` is set |
 | `/audit`, `/orgs/{org_id}/config*`, `/orgs/{org_id}/docs*` | `Authorization: Bearer <token>`: `API_ADMIN_TOKEN` (any org) or the org's own token from `API_ORG_TOKENS`. See [Management API tokens](#management-api-tokens) |
 | `/webhook/github` | `X-Hub-Signature-256` when `WEBHOOK_SECRET` is set |
 | `/webhook/manual` | `X-Hub-Signature-256` **or** `X-Webhook-Signature` when `WEBHOOK_SECRET` is set |
@@ -95,6 +96,18 @@ All storage paths are prefixed with `{org_id}/`:
 ---
 
 ## Endpoints
+
+### `GET /metrics`
+
+Prometheus text format metrics for the agent itself: incidents by type, source and outcome; incident
+duration; queue depth; tool calls by tool and result; Slack approval decisions; Claude token usage;
+fix-verification results; HTTP requests by route template and status; and the emergency-stop flag.
+Labels never include incident IDs, orgs, repos or hosts. See
+[Monitoring the agent](GRAFANA_PROMETHEUS.md#monitoring-the-agent-itself) for scrape config and alert rules.
+
+When `METRICS_TOKEN` is set, requests without `Authorization: Bearer <METRICS_TOKEN>` get **401**.
+
+---
 
 ### `GET /health`
 
