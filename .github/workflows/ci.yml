@@ -461,12 +461,13 @@ jobs:
 
       # Trivy from its official image (pinned). Fails on HIGH/CRITICAL
       # vulnerabilities that have a fix available; accepted risks go in
-      # .trivyignore with a reason and an expiry.
+      # .trivyignore.yaml, scoped to a path, with a reason and an expiry.
       - name: Scan images for vulnerabilities
         env:
           TRIVY_IMAGE: aquasec/trivy:0.76.1
         run: |
           mkdir -p sbom "$HOME/.cache/trivy"
+          status=0
           for image in devops-ai-agent:test devops-agent-middleware:test; do
             echo "::group::Trivy $image"
             docker run --rm \
@@ -475,9 +476,11 @@ jobs:
               -v "$PWD:/work" -w /work \
               "$TRIVY_IMAGE" image --scanners vuln \
               --severity HIGH,CRITICAL --ignore-unfixed \
-              --ignorefile .trivyignore --exit-code 1 --no-progress "$image"
+              --ignorefile .trivyignore.yaml --exit-code 1 --no-progress "$image" \
+              || { status=1; echo "::error::Trivy found fixable HIGH/CRITICAL vulnerabilities in $image"; }
             echo "::endgroup::"
           done
+          exit $status
 
       - name: Generate SBOMs (CycloneDX)
         if: always()
