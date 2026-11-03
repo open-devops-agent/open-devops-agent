@@ -201,6 +201,67 @@ organization's credentials and docs. Grafana's own numeric `orgId` is ignored.
 | `alert_logs` has `line_count: 0` | The selector matched nothing, or there were no error lines. Check the label names in Explore, or use a `logql` annotation without the error filter. |
 | Logs are found but the agent doesn't change anything | `AUTO_APPLY=false` (the default) means changes wait for approval in Slack. See [Safety guarantees](../SECURITY_GUARANTEES.md). |
 
+## Monitoring the agent itself
+
+The agent exposes its own Prometheus metrics at `GET /metrics`. Set `METRICS_TOKEN` to require a bearer
+token. Leaving it unset keeps the endpoint open, so only do that on an internal network.
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: devops-agent
+    scrape_interval: 30s
+    authorization:
+      type: Bearer
+      credentials: <METRICS_TOKEN>
+    static_configs:
+      - targets: ["devops-agent.devops-agent.svc:8000"]
+```
+
+| Metric | Type | Labels |
+|---|---|---|
+| `devops_agent_incidents_total` | counter | `type`, `source`, `outcome` (`resolved`/`unresolved`/`failed`) |
+| `devops_agent_incident_duration_seconds` | histogram | `type` |
+| `devops_agent_queue_depth` | gauge | `state` (`pending`/`processing`) |
+| `devops_agent_tool_calls_total` | counter | `tool`, `result` (`ok`/`error`/`blocked`/`requires_approval`/`emergency_stop`) |
+| `devops_agent_approvals_total` | counter | `decision` (`approved`/`rejected`/`denied`) |
+| `devops_agent_llm_tokens_total` | counter | `model`, `kind` (`input`/`output`/`cache_read_input`/`cache_creation_input`) |
+| `devops_agent_fix_verification_total` | counter | `status` (`verified`/`failed`/`unstable`) |
+| `devops_agent_http_requests_total` | counter | `route` (template, e.g. `/orgs/{org_id}/docs`), `method`, `status` |
+| `devops_agent_emergency_stop` | gauge | none (1 while active) |
+
+Labels are kept low-cardinality: there are no incident IDs, orgs, repos or hosts, and unknown incident
+types, sources and tool names are reported as `other`.
+
+Example alert rules:
+
+```yaml
+groups:
+  - name: devops-agent
+    rules:
+      - alert: DevOpsAgentQueueStuck
+        expr: devops_agent_queue_depth{state="pending"} > 0
+              and increase(devops_agent_incidents_total[30m]) == 0
+        for: 30m
+        annotations:
+          summary: Incidents are queued but the agent has not processed any in 30 minutes
+      - alert: DevOpsAgentFailing
+        expr: sum(rate(devops_agent_incidents_total{outcome="failed"}[15m]))
+              / clamp_min(sum(rate(devops_agent_incidents_total[15m])), 1e-9) > 0.5
+        for: 15m
+        annotations:
+          summary: More than half of incidents are failing (check Claude API key, quota, storage)
+      - alert: DevOpsAgentFixesNotHolding
+        expr: increase(devops_agent_fix_verification_total{status=~"failed|unstable"}[1h]) > 3
+        annotations:
+          summary: Several fixes failed verification in the last hour
+      - alert: DevOpsAgentEmergencyStop
+        expr: devops_agent_emergency_stop == 1
+        for: 5m
+        annotations:
+          summary: Agent emergency stop is active; mutations are blocked
+```
+
 ## Reference
 
 | Variable | Purpose |

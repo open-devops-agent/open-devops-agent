@@ -9,6 +9,7 @@ import binascii
 import inspect
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -17,13 +18,15 @@ from typing import Any, Dict, List, Optional, Union
 import structlog
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 
 from agent.core import DevOpsAgent
 from agent.classifier import classify_issue
 from api.api_auth import api_auth_disabled, require_org_access
 from api.webhook_auth import (
+    _signatures_equal,
     bearer_token,
     get_webhook_secret,
     verify_slack_signature,
@@ -35,7 +38,8 @@ from services.background_lock import (
     release_background_worker_lock,
 )
 from services.alert_dedupe import AlertDeduper
-from services.incident_queue import IncidentQueue
+from services.incident_queue import QUEUE_PENDING, QUEUE_PROCESSING, IncidentQueue
+from services import metrics
 from services.incident_store import IncidentStore
 from services.org_docs import OrgDocs
 from services.escalation import EscalationService, parse_queue_timestamp
@@ -89,9 +93,15 @@ async def _process_incident_with_org_creds(
     entry: dict, incident_id: str, org_id: str, context: dict, started_at
 ):
     result = None
+    processing_started = time.monotonic()
 
     try:
         result = await agent.run(context, incident_id=incident_id, resume=True)
+        metrics.record_incident(
+            context,
+            "resolved" if result.get("resolved") else "unresolved",
+            time.monotonic() - processing_started,
+        )
 
         decision = escalation_service.evaluate(
             incident_id, org_id, context, result, started_at
@@ -133,6 +143,8 @@ async def _process_incident_with_org_creds(
 
     except Exception as e:
         log.error("Incident handling failed", id=incident_id, error=str(e))
+        if result is None:
+            metrics.record_incident(context, "failed", time.monotonic() - processing_started)
         decision = escalation_service.evaluate(
             incident_id, org_id, context, result, started_at, error=str(e)
         )
@@ -279,6 +291,44 @@ def _require_webhook_auth(
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
+
+@app.middleware("http")
+async def _count_requests(request: Request, call_next):
+    response = await call_next(request)
+    route = request.scope.get("route")
+    template = getattr(route, "path", None) or "unmatched"
+    if template != "/metrics":
+        metrics.HTTP_REQUESTS.labels(template, request.method, str(response.status_code)).inc()
+    return response
+
+
+def _refresh_metric_gauges() -> None:
+    metrics.EMERGENCY_STOP.set(1 if is_emergency_stop_active() else 0)
+    try:
+        depth = {QUEUE_PENDING: 0, QUEUE_PROCESSING: 0}
+        for org in incident_queue.list_pending_org_ids():
+            for state in depth:
+                prefix = incident_queue.storage.org_prefix(org, "queue", state)
+                depth[state] += len(incident_queue.storage.list_keys(prefix))
+        for state, count in depth.items():
+            metrics.QUEUE_DEPTH.labels(state).set(count)
+    except Exception as exc:  # a storage hiccup must not break scraping
+        log.warning("queue_depth_metric_failed", error=str(exc))
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics(authorization: Optional[str] = Header(None)):
+    """Prometheus metrics. Requires `Authorization: Bearer <METRICS_TOKEN>` when METRICS_TOKEN is set."""
+    expected = os.getenv("METRICS_TOKEN", "").strip()
+    if expected:
+        provided = bearer_token(authorization)
+        if not provided or not _signatures_equal(expected, provided):
+            raise HTTPException(
+                status_code=401, detail="Bearer token required", headers={"WWW-Authenticate": "Bearer"}
+            )
+    _refresh_metric_gauges()
+    return Response(generate_latest(metrics.REGISTRY), media_type=CONTENT_TYPE_LATEST)
+
 
 @app.get("/health")
 async def health():
@@ -817,6 +867,7 @@ def _record_slack_decision(
         "at": now.isoformat(),
     }
     log.info("Slack approval decision", **record)
+    metrics.APPROVALS.labels(decision).inc()
     try:
         incident_store.save_log(
             org_id,

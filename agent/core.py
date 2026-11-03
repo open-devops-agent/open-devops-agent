@@ -61,6 +61,7 @@ from services.incident_store import IncidentStore
 from services.approval_store import CommandApprovalStore
 from services.org_docs import OrgDocs
 from services.org_context import org_agent_credentials
+from services.metrics import record_llm_usage, record_tool_call, record_verification
 from services.pii_scrubber import scrub_dict, scrub_text, scrub_value
 
 log = structlog.get_logger()
@@ -874,6 +875,9 @@ AGENT_TOOLS = [
     },
 ]
 
+# Tool names used as a metrics label; anything else is reported as "other".
+_AGENT_TOOL_NAMES = {tool["name"] for tool in AGENT_TOOLS}
+
 
 # Stability-monitoring window for post-remediation verification: the documented
 # 300-second (5-minute) window advertised in README and SECURITY_GUARANTEES.
@@ -1121,6 +1125,7 @@ class DevOpsAgent:
                         expected_state=_verification_expected_state(issue_type, context),
                         monitoring_duration=FIX_VERIFICATION_MONITORING_SECONDS,
                     )
+                    record_verification(verification)
                     self.incident_store.save_log(
                         org_id, incident_id, "verification.json", verification
                     )
@@ -1162,6 +1167,7 @@ class DevOpsAgent:
 
                     log.info("Tool call", tool=block.name, input=block.input, incident_id=incident_id)
                     result = await self._execute_tool(block.name, block.input, context)
+                    record_tool_call(block.name, result, _AGENT_TOOL_NAMES)
                     scrubbed_result = scrub_value(result)
                     actions_taken.append({
                         "tool": block.name,
@@ -1207,13 +1213,15 @@ class DevOpsAgent:
         last_error = None
         for attempt in range(1, self.claude_retries + 1):
             try:
-                return self._anthropic_client().messages.create(
+                response = self._anthropic_client().messages.create(
                     model=self.model,
                     max_tokens=4096,
                     system=system_prompt,
                     tools=AGENT_TOOLS,
                     messages=messages,
                 )
+                record_llm_usage(self.model, getattr(response, "usage", None))
+                return response
             except (
                 anthropic.APIConnectionError,
                 anthropic.RateLimitError,
@@ -1434,7 +1442,9 @@ class DevOpsAgent:
         org_id = ctx.get("org_id") or os.getenv("ORG_ID", "default")
         with org_agent_credentials(org_id, self):
             self.auto_apply = os.getenv("AUTO_APPLY", "false").lower() == "true"
-            return await self._execute_tool(name, inputs, ctx)
+            result = await self._execute_tool(name, inputs, ctx)
+            record_tool_call(name, result, _AGENT_TOOL_NAMES)
+            return result
 
     async def _execute_tool(self, name: str, inputs: dict, context: dict) -> dict:
         """Route tool calls to the appropriate handler."""
