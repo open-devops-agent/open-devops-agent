@@ -1,0 +1,6 @@
+# Accepted vulnerability findings for `trivy image` in CI (.github/workflows/ci.yml).
+# One CVE ID per line. Every entry needs a comment with the reason and a review
+# date, for example:
+#
+#   # libfoo in python:3.12-slim; not reachable (no TLS server). Review 2027-01-01.
+#   CVE-2026-12345
