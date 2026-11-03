@@ -1,5 +1,6 @@
 # ── Stage 1: Dependencies ───────────────────────────────────────────────────
-FROM python:3.12-slim AS deps
+# Base image pinned by digest; Dependabot (docker ecosystem) proposes updates.
+FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS deps
 
 WORKDIR /app
 
@@ -8,8 +9,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install kubectl
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+# Install kubectl: pinned version, checksum verified against the values below
+# (not fetched at build time), for the build platform's architecture.
+ARG KUBECTL_VERSION=v1.37.2
+ARG KUBECTL_SHA256_AMD64=c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4
+ARG KUBECTL_SHA256_ARM64=fcc16f63186659d9722014b7e02d5fdd2d4e669cb8c0ab66365d7d3b8ba03509
+ARG TARGETARCH=amd64
+RUN case "$TARGETARCH" in \
+        amd64) sha="$KUBECTL_SHA256_AMD64" ;; \
+        arm64) sha="$KUBECTL_SHA256_ARM64" ;; \
+        *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSLo kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+    && echo "${sha}  kubectl" | sha256sum -c - \
     && chmod +x kubectl \
     && mv kubectl /usr/local/bin/
 
@@ -18,7 +30,7 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS runtime
 
 WORKDIR /app
 

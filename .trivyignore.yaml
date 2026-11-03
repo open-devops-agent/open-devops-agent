@@ -1,0 +1,20 @@
+# Accepted vulnerability findings for `trivy image` in CI (.github/workflows/ci.yml).
+# Each entry is scoped to the affected path, states why it is accepted, and
+# expires so CI fails again if the underlying fix has not been picked up.
+
+vulnerabilities:
+  # Go dependencies compiled into the kubectl binary. v1.37.2 is the newest
+  # stable kubectl and still links x/net v0.57.0 / x/text v0.40.0; there is no
+  # release with the fixed modules yet. kubectl runs only as a short-lived
+  # client inside the agent (no HTTP/2 server, no untrusted text parsing).
+  # Upgrade KUBECTL_VERSION (and both SHA-256 ARGs) when a patched release ships.
+  - id: CVE-2026-78669
+    paths:
+      - "usr/local/bin/kubectl"
+    statement: "golang.org/x/net in kubectl v1.37.2; no patched kubectl release yet"
+    expired_at: 2026-12-15
+  - id: CVE-2026-56851
+    paths:
+      - "usr/local/bin/kubectl"
+    statement: "golang.org/x/text in kubectl v1.37.2; no patched kubectl release yet"
+    expired_at: 2026-12-15
