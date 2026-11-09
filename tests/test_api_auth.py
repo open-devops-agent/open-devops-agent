@@ -1,4 +1,6 @@
 """Management API authorization: org config, docs and audit routes (#59)."""
+import hashlib
+import hmac
 import os
 
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-test-key")
@@ -126,7 +128,11 @@ def test_org_token_parsing(monkeypatch, raw, expected):
 
 
 def test_health_and_webhooks_stay_outside_api_auth(client, monkeypatch):
-    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("WEBHOOK_SECRET", "test-webhook-secret")
     assert client.get("/health").status_code == 200
-    response = client.post("/webhook/manual", json={"type": "k8s", "namespace": "default"})
+    body = b'{"type":"k8s","namespace":"default"}'
+    signature = "sha256=" + hmac.new(b"test-webhook-secret", body, hashlib.sha256).hexdigest()
+    response = client.post(
+        "/webhook/manual", content=body, headers={"X-Hub-Signature-256": signature}
+    )
     assert response.status_code == 200

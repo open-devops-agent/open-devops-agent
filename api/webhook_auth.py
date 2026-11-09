@@ -40,11 +40,16 @@ def get_webhook_secret() -> str:
     return os.getenv("WEBHOOK_SECRET", "")
 
 
+def webhook_auth_disabled() -> bool:
+    """Explicit local-development opt-out, used only without WEBHOOK_SECRET."""
+    return os.getenv("WEBHOOK_AUTH_DISABLED", "false").strip().lower() in ("true", "1", "yes")
+
+
 def verify_webhook_request(payload: bytes, signature: Optional[str]) -> bool:
     """Verify webhook using WEBHOOK_SECRET and X-Hub-Signature-256 / X-Webhook-Signature."""
     secret = get_webhook_secret()
     if not secret:
-        return True
+        return webhook_auth_disabled()
     if not signature:
         return False
     return verify_hmac_sha256_signature(payload, signature, secret)
@@ -54,7 +59,7 @@ def verify_static_webhook_token(token: Optional[str], secret: Optional[str] = No
     """GitLab-style shared secret (X-Gitlab-Token), compared in constant time."""
     expected = secret if secret is not None else get_webhook_secret()
     if not expected:
-        return True
+        return webhook_auth_disabled()
     if not token:
         return False
     return _signatures_equal(expected, token)
@@ -82,7 +87,7 @@ def verify_webhook_auth(
     """Accept HMAC signature or a static token (GitLab Secret token, bearer token)."""
     secret = get_webhook_secret()
     if not secret:
-        return True
+        return webhook_auth_disabled()
     if signature and verify_hmac_sha256_signature(payload, signature, secret):
         return True
     if static_token and verify_static_webhook_token(static_token, secret):
@@ -94,6 +99,11 @@ def get_slack_signing_secret() -> str:
     return os.getenv("SLACK_SIGNING_SECRET", "")
 
 
+def slack_auth_disabled() -> bool:
+    """Explicit local-development opt-out, used only without SLACK_SIGNING_SECRET."""
+    return os.getenv("SLACK_AUTH_DISABLED", "false").strip().lower() in ("true", "1", "yes")
+
+
 def verify_slack_signature(
     body: bytes,
     timestamp: Optional[str],
@@ -103,7 +113,7 @@ def verify_slack_signature(
 ) -> bool:
     secret = signing_secret or get_slack_signing_secret()
     if not secret:
-        return True
+        return slack_auth_disabled()
     if not timestamp or not signature:
         return False
     try:

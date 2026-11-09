@@ -28,10 +28,13 @@ from api.api_auth import api_auth_disabled, require_org_access
 from api.webhook_auth import (
     _signatures_equal,
     bearer_token,
+    get_slack_signing_secret,
     get_webhook_secret,
+    slack_auth_disabled,
     verify_slack_signature,
     verify_webhook_auth,
     verify_webhook_request,
+    webhook_auth_disabled,
 )
 from services.background_lock import (
     acquire_background_worker_lock,
@@ -242,6 +245,14 @@ async def lifespan(app: FastAPI):
         log.warning(
             "API_AUTH_DISABLED=true: org config, docs and audit endpoints are unauthenticated"
         )
+    if not get_webhook_secret() and webhook_auth_disabled():
+        log.warning(
+            "WEBHOOK_AUTH_DISABLED=true: unsigned webhooks are accepted (local development only)"
+        )
+    if not get_slack_signing_secret() and slack_auth_disabled():
+        log.warning(
+            "SLACK_AUTH_DISABLED=true: unsigned Slack actions are accepted (local development only)"
+        )
     _background_lock_handle = acquire_background_worker_lock()
     try:
         incident_queue.adopt_legacy_reviews()
@@ -286,7 +297,15 @@ def _require_webhook_auth(
     signature: Optional[str] = None,
     static_token: Optional[str] = None,
 ) -> None:
-    if get_webhook_secret() and not verify_webhook_auth(body, signature, static_token):
+    if not get_webhook_secret() and not webhook_auth_disabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Webhook authentication is not configured. Set WEBHOOK_SECRET "
+                "(or WEBHOOK_AUTH_DISABLED=true for local development)."
+            ),
+        )
+    if not verify_webhook_auth(body, signature, static_token):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
 
@@ -773,6 +792,14 @@ async def slack_action(
     x_slack_request_timestamp: str = Header(None, alias="X-Slack-Request-Timestamp"),
 ):
     body = await request.body()
+    if not get_slack_signing_secret() and not slack_auth_disabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Slack authentication is not configured. Set SLACK_SIGNING_SECRET "
+                "(or SLACK_AUTH_DISABLED=true for local development)."
+            ),
+        )
     if not verify_slack_signature(body, x_slack_request_timestamp, x_slack_signature):
         raise HTTPException(status_code=401, detail="Invalid Slack signature")
 

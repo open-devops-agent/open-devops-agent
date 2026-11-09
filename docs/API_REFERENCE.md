@@ -13,10 +13,10 @@ All incident data is **org-scoped** and stored in cloud object storage (S3, MinI
 | `/health` | None (liveness probe) |
 | `/metrics` | None, or `Authorization: Bearer <METRICS_TOKEN>` when `METRICS_TOKEN` is set |
 | `/audit`, `/orgs/{org_id}/config*`, `/orgs/{org_id}/docs*` | `Authorization: Bearer <token>`: `API_ADMIN_TOKEN` (any org) or the org's own token from `API_ORG_TOKENS`. See [Management API tokens](#management-api-tokens) |
-| `/webhook/github` | `X-Hub-Signature-256` when `WEBHOOK_SECRET` is set |
-| `/webhook/manual` | `X-Hub-Signature-256` **or** `X-Webhook-Signature` when `WEBHOOK_SECRET` is set |
+| `/webhook/github` | `WEBHOOK_SECRET` required; `X-Hub-Signature-256` |
+| `/webhook/manual` | `WEBHOOK_SECRET` required; `X-Hub-Signature-256` **or** `X-Webhook-Signature` |
 | `/webhook/alertmanager`, `/webhook/grafana` | HMAC signature as above, **or** `Authorization: Bearer <WEBHOOK_SECRET>` (Alertmanager and Grafana cannot sign bodies) |
-| `/slack/action` | `X-Slack-Signature` + `X-Slack-Request-Timestamp` when `SLACK_SIGNING_SECRET` is set (configured in Slack app settings) |
+| `/slack/action` | `SLACK_SIGNING_SECRET` required; `X-Slack-Signature` + `X-Slack-Request-Timestamp` (configured in Slack app settings) |
 
 ### Management API tokens
 
@@ -51,7 +51,7 @@ When `WEBHOOK_SECRET` is set, signed webhook endpoints require a hex HMAC-SHA256
 
 ```bash
 BODY='{"type":"k8s","namespace":"production"}'
-SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $2}')"
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $NF}')"
 
 curl -X POST http://localhost:8000/webhook/manual \
   -H "Content-Type: application/json" \
@@ -65,13 +65,19 @@ curl -X POST http://localhost:8000/webhook/manual \
   request is rejected. `/webhook/github` accepts only `X-Hub-Signature-256`.
 - `/webhook/alertmanager` and `/webhook/grafana` also accept `Authorization: Bearer <WEBHOOK_SECRET>`,
   compared in constant time. A valid bearer token is accepted even if a signature header is also present.
-- When `WEBHOOK_SECRET` is unset or empty, signature verification is skipped entirely and unsigned
-  requests are accepted. Leave it unset only for local testing.
+- When `WEBHOOK_SECRET` is unset or empty, webhook requests return **503** with instructions to
+  configure the secret. They are rejected before parsing or enqueueing the incident.
+- For local testing only, `WEBHOOK_AUTH_DISABLED=true` explicitly permits unsigned webhooks while
+  the secret is unset. A warning is logged at startup. A configured secret is always verified,
+  even with the flag set. This flag does not disable Slack or management API authentication.
 
 `/slack/action` uses Slack's own scheme instead (`v0=` HMAC-SHA256 over
 `v0:{timestamp}:{body}` keyed with `SLACK_SIGNING_SECRET`, rejecting timestamps more than
 5 minutes from the server clock), and returns **401** `{"detail": "Invalid Slack signature"}`
-on failure.
+on failure. An unset or empty `SLACK_SIGNING_SECRET` returns **503** before an approval can be
+recorded or executed. `SLACK_AUTH_DISABLED=true` is a separate local-development opt-out, used only
+while that secret is unset; a configured Slack secret is always verified. It logs a startup warning
+and does not disable webhook authentication. Leave both opt-outs false in deployed environments.
 
 ---
 
@@ -316,7 +322,7 @@ Manually trigger an incident.
 | Header | Required | Description |
 |--------|----------|-------------|
 | `Content-Type` | Yes | `application/json` |
-| `X-Hub-Signature-256` or `X-Webhook-Signature` | If `WEBHOOK_SECRET` set | HMAC SHA-256 signature of the raw body (see [Webhook signatures](#webhook-signatures)) |
+| `X-Hub-Signature-256` or `X-Webhook-Signature` | Yes (unless explicitly opted out for local development) | HMAC SHA-256 signature of the raw body (see [Webhook signatures](#webhook-signatures)) |
 | `X-Org-ID` | No | Organization ID |
 
 **Request body:**
@@ -346,8 +352,9 @@ curl -X POST http://localhost:8000/webhook/manual \
   }'
 ```
 
-This unsigned example is accepted only while `WEBHOOK_SECRET` is unset; otherwise add a
-signature header as shown under [Webhook signatures](#webhook-signatures).
+Add a signature header as shown under [Webhook signatures](#webhook-signatures). This unsigned
+example works only with `WEBHOOK_SECRET` unset and the explicit local-development opt-out
+`WEBHOOK_AUTH_DISABLED=true`.
 
 **Response 200:**
 
@@ -375,7 +382,7 @@ plus Grafana fields.
 | Header | Required | Description |
 |--------|----------|-------------|
 | `Content-Type` | Yes | `application/json` |
-| `Authorization` | If `WEBHOOK_SECRET` set (or sign instead) | `Bearer <WEBHOOK_SECRET>` — contact point → Optional settings → Authorization Header |
+| `Authorization` | Yes, or sign instead | `Bearer <WEBHOOK_SECRET>` — contact point → Optional settings → Authorization Header |
 | `X-Hub-Signature-256` or `X-Webhook-Signature` | Alternative to `Authorization` | HMAC SHA-256 of the raw body |
 | `X-Org-ID` | No | Organization ID (Grafana's numeric `orgId` is not used) |
 
@@ -415,7 +422,7 @@ Receive Prometheus Alertmanager alerts.
 | Header | Required | Description |
 |--------|----------|-------------|
 | `Content-Type` | Yes | `application/json` |
-| `Authorization` | If `WEBHOOK_SECRET` set (or sign instead) | `Bearer <WEBHOOK_SECRET>` — set via `http_config.authorization` in `alertmanager.yml` |
+| `Authorization` | Yes, or sign instead | `Bearer <WEBHOOK_SECRET>` — set via `http_config.authorization` in `alertmanager.yml` |
 | `X-Hub-Signature-256` or `X-Webhook-Signature` | Alternative to `Authorization` | HMAC SHA-256 signature of the raw body (see [Webhook signatures](#webhook-signatures)) |
 | `X-Org-ID` | No | Organization ID |
 
@@ -465,7 +472,7 @@ Receive GitHub Actions webhooks.
 | Header | Required | Description |
 |--------|----------|-------------|
 | `X-GitHub-Event` | Yes | Must be `workflow_run` |
-| `X-Hub-Signature-256` | If `WEBHOOK_SECRET` set | HMAC SHA-256 signature |
+| `X-Hub-Signature-256` | Yes (unless explicitly opted out for local development) | HMAC SHA-256 signature |
 | `X-Org-ID` | No | Organization ID |
 
 Only processes `workflow_run` events where `conclusion` is `failure`.
@@ -516,8 +523,8 @@ and the confirmation message names the approver.
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `X-Slack-Signature` | If `SLACK_SIGNING_SECRET` set | Slack `v0=` request signature |
-| `X-Slack-Request-Timestamp` | If `SLACK_SIGNING_SECRET` set | Unix seconds; rejected if more than 5 minutes from the server clock |
+| `X-Slack-Signature` | Yes (unless explicitly opted out for local development) | Slack `v0=` request signature |
+| `X-Slack-Request-Timestamp` | Yes (unless explicitly opted out for local development) | Unix seconds; rejected if more than 5 minutes from the server clock |
 
 **Form field:** `payload` — JSON string from Slack.
 
@@ -526,7 +533,8 @@ headers on interactive payloads; set `SLACK_SIGNING_SECRET` to the app's signing
 have them verified.
 
 **Response 401:** Missing, stale, or invalid Slack signature (when `SLACK_SIGNING_SECRET` is set).
-When the secret is unset, verification is skipped entirely.
+**Response 503:** `SLACK_SIGNING_SECRET` is unset or empty. For local development only,
+`SLACK_AUTH_DISABLED=true` permits unsigned actions while the secret is unset.
 
 ---
 

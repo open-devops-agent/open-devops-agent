@@ -269,6 +269,8 @@ jobs:
   integration-test:
     name: Integration Test - Full Agent Flow
     runs-on: ubuntu-latest
+    env:
+      WEBHOOK_SECRET: ci-webhook-secret
 
     steps:
       - uses: actions/checkout@v7
@@ -309,15 +311,18 @@ jobs:
 
       - name: Test Manual Webhook - K8s Incident (Dummy)
         run: |
-          body_file=$(mktemp)
-          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
-            -H "Content-Type: application/json" \
-            -d '{
+          payload='{
               "type": "k8s",
               "namespace": "test",
               "pod_name": "dummy-pod",
               "labels": {"severity": "warning", "test": "true"}
-            }') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
+            }'
+          signature="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $NF}')"
+          body_file=$(mktemp)
+          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: $signature" \
+            --data-binary "$payload") || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
           body=$(cat "$body_file")
           if [ "$status" != "200" ] || ! jq -e --arg type k8s \
             '.status == "queued" and (.incident_id | type == "string" and length > 0) and .context.type == $type and .context.source == "manual"' \
@@ -329,16 +334,19 @@ jobs:
 
       - name: Test Manual Webhook - CI/CD Incident (Dummy)
         run: |
-          body_file=$(mktemp)
-          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
-            -H "Content-Type: application/json" \
-            -d '{
+          payload='{
               "type": "cicd",
               "source": "github_actions",
               "repo": "test/repo",
               "run_id": 12345,
               "labels": {"test": "true"}
-            }') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
+            }'
+          signature="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $NF}')"
+          body_file=$(mktemp)
+          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: $signature" \
+            --data-binary "$payload") || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
           body=$(cat "$body_file")
           if [ "$status" != "200" ] || ! jq -e --arg type cicd \
             '.status == "queued" and (.incident_id | type == "string" and length > 0) and .context.type == $type and .context.source == "manual"' \
@@ -350,14 +358,17 @@ jobs:
 
       - name: Test Manual Webhook - ArgoCD Incident (Dummy)
         run: |
-          body_file=$(mktemp)
-          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
-            -H "Content-Type: application/json" \
-            -d '{
+          payload='{
               "type": "argocd",
               "app_name": "test-app",
               "labels": {"test": "true"}
-            }') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
+            }'
+          signature="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $NF}')"
+          body_file=$(mktemp)
+          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: $signature" \
+            --data-binary "$payload") || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
           body=$(cat "$body_file")
           if [ "$status" != "200" ] || ! jq -e --arg type argocd \
             '.status == "queued" and (.incident_id | type == "string" and length > 0) and .context.type == $type and .context.source == "manual"' \
@@ -369,10 +380,13 @@ jobs:
 
       - name: Test Manual Webhook - Missing Type Rejected
         run: |
+          payload='{"namespace": "test", "labels": {"test": "true"}}'
+          signature="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $NF}')"
           body_file=$(mktemp)
           status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
             -H "Content-Type: application/json" \
-            -d '{"namespace": "test", "labels": {"test": "true"}}') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
+            -H "X-Hub-Signature-256: $signature" \
+            --data-binary "$payload") || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
           body=$(cat "$body_file")
           if [ "$status" != "400" ] || ! jq -e --arg detail "'type' field required" '.detail == $detail' <<<"$body" >/dev/null; then
             echo "::error::Unexpected response: HTTP $status, body: $body"
@@ -382,10 +396,13 @@ jobs:
 
       - name: Test Manual Webhook - Invalid JSON Rejected
         run: |
+          payload='not json'
+          signature="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $NF}')"
           body_file=$(mktemp)
           status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
             -H "Content-Type: application/json" \
-            -d 'not json') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
+            -H "X-Hub-Signature-256: $signature" \
+            --data-binary "$payload") || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
           body=$(cat "$body_file")
           if [ "$status" != "400" ] || ! jq -e --arg detail "JSON object required" '.detail == $detail' <<<"$body" >/dev/null; then
             echo "::error::Unexpected response: HTTP $status, body: $body"

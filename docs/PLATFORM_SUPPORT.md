@@ -2,6 +2,10 @@
 
 Complete list of supported platforms, operating systems, and integrations.
 
+For webhook examples below, configure `WEBHOOK_SECRET` and add authentication as described in
+[Webhook signatures](API_REFERENCE.md#webhook-signatures). Unsigned requests require the explicit
+local-development opt-out `WEBHOOK_AUTH_DISABLED=true` and an unset secret.
+
 ## Cloud Providers
 
 | Provider | Supported | Collector | Services |
