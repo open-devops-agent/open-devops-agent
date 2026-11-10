@@ -18,3 +18,8 @@ vulnerabilities:
       - "usr/local/bin/kubectl"
     statement: "golang.org/x/text in kubectl v1.37.2; no patched kubectl release yet"
     expired_at: 2026-12-15
+  - id: CVE-2026-78661
+    paths:
+      - "usr/local/bin/kubectl"
+    statement: "golang.org/x/net/html in kubectl v1.37.2 (kubectl does not parse untrusted HTML); no patched kubectl release yet"
+    expired_at: 2026-12-15
