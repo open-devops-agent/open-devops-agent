@@ -4,9 +4,13 @@ Incident Simulator — Test the agent with realistic fake incidents.
 Usage: python scripts/simulate_incident.py [cicd|k8s|server|dockerfile]
 """
 import asyncio
+import hashlib
+import hmac
 import json
+import os
 import sys
 import httpx
+from dotenv import load_dotenv
 
 BASE_URL = "http://localhost:8000"
 
@@ -119,6 +123,7 @@ Module not found: Error: Can't resolve './missing-module'
 
 
 async def simulate(incident_type: str):
+    load_dotenv()
     incident = INCIDENTS.get(incident_type)
     if not incident:
         print(f"Unknown type: {incident_type}. Choose from: {list(INCIDENTS.keys())}")
@@ -127,10 +132,18 @@ async def simulate(incident_type: str):
     print(f"\n🚨 Simulating {incident_type.upper()} incident...")
     print(f"Sending to {BASE_URL}/webhook/manual\n")
 
+    body = json.dumps(incident).encode()
+    headers = {"Content-Type": "application/json"}
+    secret = os.getenv("WEBHOOK_SECRET", "")
+    if secret:
+        headers["X-Hub-Signature-256"] = (
+            "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        )
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(f"{BASE_URL}/webhook/manual", json=incident)
+        resp = await client.post(f"{BASE_URL}/webhook/manual", content=body, headers=headers)
         print(f"Status: {resp.status_code}")
         print(f"Response: {json.dumps(resp.json(), indent=2)}")
+        resp.raise_for_status()
 
     print(f"\n✅ Incident submitted! Check {BASE_URL}/audit for results.")
     print(f"Agent is processing in the background — check your Slack channel.")

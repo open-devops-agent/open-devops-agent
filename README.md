@@ -600,16 +600,15 @@ devops-agent serve
 # MCP server (for Cursor / Claude Desktop / custom agents)
 devops-agent mcp
 
-# In another terminal, test with a manual incident (queued — async processing)
+# In another terminal, export the same WEBHOOK_SECRET configured on the server.
+# Sign the exact request body (queued — async processing).
+BODY='{"type":"k8s","namespace":"default","pod":"myapp-pod","description":"CrashLoopBackOff test"}'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '{print $NF}')"
 curl -X POST http://localhost:8000/webhook/manual \
   -H "Content-Type: application/json" \
   -H "X-Org-ID: acme-corp" \
-  -d '{
-    "type": "k8s",
-    "namespace": "default",
-    "pod": "myapp-pod",
-    "description": "CrashLoopBackOff test"
-  }'
+  -H "X-Hub-Signature-256: $SIG" \
+  --data-binary "$BODY"
 
 # Wait ~30s, then check org-scoped audit log
 curl -H "Authorization: Bearer $API_TOKEN" "http://localhost:8000/audit?org_id=acme-corp"

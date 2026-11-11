@@ -2,7 +2,7 @@
 Tests for webhook authentication on /webhook/alertmanager and /webhook/manual.
 
 Mirrors the GitHub endpoint behaviour: HMAC-SHA256 over the raw request body,
-header `X-Hub-Signature-256`, secret `WEBHOOK_SECRET`, verification skipped when
+header `X-Hub-Signature-256`, secret `WEBHOOK_SECRET`, fail-closed defaults when
 no secret is configured.
 """
 
@@ -131,11 +131,10 @@ class TestAlertmanagerWebhookAuth:
         )
         assert response.status_code == 401
 
-    def test_no_secret_skips_verification(self, no_secret_client):
+    def test_no_secret_fails_closed(self, no_secret_client):
         body = json.dumps(ALERTMANAGER_PAYLOAD).encode()
         response = no_secret_client.post("/webhook/alertmanager", content=body)
-        assert response.status_code == 200
-        assert response.json()["status"] == "queued"
+        assert response.status_code == 503
 
 
 class TestManualWebhookAuth:
@@ -173,11 +172,10 @@ class TestManualWebhookAuth:
         )
         assert response.status_code == 401
 
-    def test_no_secret_skips_verification(self, no_secret_client):
+    def test_no_secret_fails_closed(self, no_secret_client):
         body = json.dumps(MANUAL_PAYLOAD).encode()
         response = no_secret_client.post("/webhook/manual", content=body)
-        assert response.status_code == 200
-        assert response.json()["status"] == "queued"
+        assert response.status_code == 503
 
 
 class TestGitHubWebhookRegression:
@@ -208,14 +206,14 @@ class TestGitHubWebhookRegression:
         )
         assert response.status_code == 401
 
-    def test_no_secret_skips_verification(self, no_secret_client):
+    def test_no_secret_fails_closed(self, no_secret_client):
         body = json.dumps(GITHUB_PAYLOAD).encode()
         response = no_secret_client.post(
             "/webhook/github",
             headers={"X-GitHub-Event": "workflow_run"},
             content=body,
         )
-        assert response.status_code == 200
+        assert response.status_code == 503
 
 
 class TestMalformedSignatureRejected:

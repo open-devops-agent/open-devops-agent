@@ -20,6 +20,7 @@ AUTH = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
 
 @pytest.fixture()
 def client(monkeypatch):
+    monkeypatch.setenv("WEBHOOK_SECRET", "test-secret")
     monkeypatch.setenv("API_ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.delenv("API_ORG_TOKENS", raising=False)
     monkeypatch.delenv("API_AUTH_DISABLED", raising=False)
@@ -39,6 +40,11 @@ def client(monkeypatch):
 def _github_sig(payload: bytes, secret: str = "test-secret") -> str:
     mac = hmac.new(secret.encode(), payload, hashlib.sha256)
     return f"sha256={mac.hexdigest()}"
+
+
+def _post_signed_webhook(client, path, payload):
+    body = json.dumps(payload).encode()
+    return client.post(path, content=body, headers={"X-Hub-Signature-256": _github_sig(body)})
 
 
 # ─── /health ─────────────────────────────────────────────────────────────────
@@ -91,7 +97,7 @@ def test_github_webhook_valid_signature_returns_200(client, monkeypatch):
     assert resp.status_code == 200
 
 
-def test_github_webhook_no_secret_accepts_all(client, monkeypatch):
+def test_github_webhook_no_secret_fails_closed(client, monkeypatch):
     monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
     payload = json.dumps({"action": "opened"}).encode()
     resp = client.post(
@@ -99,7 +105,7 @@ def test_github_webhook_no_secret_accepts_all(client, monkeypatch):
         content=payload,
         headers={"Content-Type": "application/json", "X-GitHub-Event": "push"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 503
 
 
 # ─── /webhook/alertmanager ───────────────────────────────────────────────────
@@ -114,12 +120,12 @@ def test_alertmanager_webhook_valid_payload(client):
             }
         ]
     }
-    resp = client.post("/webhook/alertmanager", json=payload)
+    resp = _post_signed_webhook(client, "/webhook/alertmanager", payload)
     assert resp.status_code == 200
 
 
 def test_alertmanager_webhook_empty_alerts(client):
-    resp = client.post("/webhook/alertmanager", json={"alerts": []})
+    resp = _post_signed_webhook(client, "/webhook/alertmanager", {"alerts": []})
     assert resp.status_code == 200
 
 
@@ -127,7 +133,7 @@ def test_alertmanager_webhook_empty_alerts(client):
 
 def test_manual_trigger_enqueues_incident(client):
     payload = {"type": "k8s", "namespace": "default"}
-    resp = client.post("/webhook/manual", json=payload)
+    resp = _post_signed_webhook(client, "/webhook/manual", payload)
     assert resp.status_code == 200
 
 

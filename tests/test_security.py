@@ -89,9 +89,9 @@ class TestWebhookAuth:
         monkeypatch.setenv("WEBHOOK_SECRET", "secret")
         assert verify_webhook_request(b"{}", "sha256=deadbeef") is False
 
-    def test_skips_when_no_secret_configured(self, monkeypatch):
+    def test_rejects_when_no_secret_configured(self, monkeypatch):
         monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
-        assert verify_webhook_request(b"{}", None) is True
+        assert verify_webhook_request(b"{}", None) is False
 
     # Fail-closed invariant: any signature that is not a byte-for-byte match of the
     # expected signature must be rejected — malformed, empty, absent or simply

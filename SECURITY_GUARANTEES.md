@@ -27,7 +27,7 @@
 
 **Network Security:**
 - TLS/SSL encryption for all communications
-- Webhook authentication is checked when `WEBHOOK_SECRET` is configured ([webhook gate](api/server.py#L264)).
+- Webhook authentication fails closed when `WEBHOOK_SECRET` is missing; unsigned local testing requires an explicit opt-out ([webhook gate](api/server.py)).
 - IP filtering must be configured in the deployment network; the API has no IP allowlist middleware ([API application and routes](api/server.py#L250)).
 - Alertmanager and Grafana accept `WEBHOOK_SECRET` as a bearer token or an HMAC signature ([webhook handlers](api/server.py#L468)).
 - Optional VPN/bastion integration
@@ -47,9 +47,9 @@ WEBHOOK_SECRET=<strong-secret>
 SLACK_SIGNING_SECRET=<slack-signing-secret>
 ```
 
-With `WEBHOOK_SECRET` set, webhook handlers check HMAC-SHA256 signatures or supported shared-token headers. Alertmanager and Grafana accept bearer tokens; GitLab accepts `X-Gitlab-Token`. These checks accept requests without authentication when the secret is unset ([webhook gate](api/server.py#L264), [Alertmanager/Grafana handlers](api/server.py#L468), [GitLab handler](api/server.py#L536), [verification functions](api/webhook_auth.py#L33)).
+With `WEBHOOK_SECRET` set, webhook handlers check HMAC-SHA256 signatures or supported shared-token headers. Alertmanager and Grafana accept bearer tokens; GitLab accepts `X-Gitlab-Token`. Missing or empty secrets return 503 before an incident is enqueued. For local development only, `WEBHOOK_AUTH_DISABLED=true` permits unsigned requests when no secret is configured. A configured secret is always verified ([webhook gate](api/server.py), [verification functions](api/webhook_auth.py)).
 
-Slack actions verify Slack signatures and request timestamps when `SLACK_SIGNING_SECRET` is configured; the check accepts requests when that secret is unset ([Slack handler](api/server.py#L678), [Slack verification](api/webhook_auth.py#L97)).
+Slack actions verify Slack signatures and request timestamps with `SLACK_SIGNING_SECRET`; missing or empty secrets return 503 before recording or executing an approval. The separate `SLACK_AUTH_DISABLED=true` opt-out permits unsigned actions only when that secret is unset, for local development. Both opt-outs default to false and log warnings at startup when active ([Slack handler](api/server.py), [Slack verification](api/webhook_auth.py)).
 
 **Layer 2: Authorization**
 

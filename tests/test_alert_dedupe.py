@@ -36,14 +36,14 @@ def queued(monkeypatch):
         return incident_id
 
     monkeypatch.setattr(server, "enqueue_incident", fake_enqueue)
-    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("WEBHOOK_SECRET", "test-alert-secret")
     monkeypatch.delenv("ALERT_DEDUPE_WINDOW_SEC", raising=False)
     return calls
 
 
 @pytest.fixture
 def client(queued):
-    return TestClient(server.app)
+    return TestClient(server.app, headers={"Authorization": "Bearer test-alert-secret"})
 
 
 @pytest.mark.parametrize("endpoint", ["/webhook/alertmanager", "/webhook/grafana"])

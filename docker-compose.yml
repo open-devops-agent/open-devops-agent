@@ -10,6 +10,8 @@ services:
     env_file:
       - .env
     environment:
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:?set WEBHOOK_SECRET in .env}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:-}
       - STORAGE_PROVIDER=minio
       - STORAGE_ENDPOINT_URL=http://minio:9000
       - STORAGE_ACCESS_KEY=minioadmin

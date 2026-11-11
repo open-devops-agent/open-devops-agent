@@ -2,6 +2,10 @@
 
 This guide explains how to configure and use the DevOps AI Agent with multiple CI/CD platforms, cloud providers, and ArgoCD.
 
+Webhook requests require authentication. Add a signature to the example request bodies using
+[Webhook signatures](API_REFERENCE.md#webhook-signatures). Unsigned examples work only for local
+development with `WEBHOOK_SECRET` unset and `WEBHOOK_AUTH_DISABLED=true` explicitly enabled.
+
 ## Table of Contents
 
 1. [CI/CD Platforms](#cicd-platforms)
