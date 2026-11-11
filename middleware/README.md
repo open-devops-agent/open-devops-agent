@@ -25,7 +25,8 @@ Alertmanager / GitLab / your apps
 ```bash
 cd middleware
 cp .env.example .env
-# set AGENT_BASE_URL, AGENT_WEBHOOK_SECRET, MIDDLEWARE_AUTH_TOKEN
+# Set AGENT_BASE_URL and MIDDLEWARE_AUTH_TOKEN.
+# Set AGENT_WEBHOOK_SECRET to the central agent's WEBHOOK_SECRET.
 
 pip install -r requirements.txt
 uvicorn app:app --host 0.0.0.0 --port 8080
@@ -94,7 +95,7 @@ See [`.env.example`](.env.example).
 | Variable | Required | Meaning |
 |----------|----------|---------|
 | `AGENT_BASE_URL` | yes | Central agent base URL |
-| `AGENT_WEBHOOK_SECRET` | recommended | Same as agent `WEBHOOK_SECRET` |
+| `AGENT_WEBHOOK_SECRET` | yes | Same as agent `WEBHOOK_SECRET`; may be omitted only when the agent runs with `WEBHOOK_AUTH_DISABLED=true` |
 | `MIDDLEWARE_AUTH_TOKEN` | yes | Protects this middleware (required unless `MIDDLEWARE_ALLOW_UNAUTHENTICATED=true`) |
 | `MIDDLEWARE_ALLOW_UNAUTHENTICATED` | no | Set `true` to allow unauthenticated `/forward` when token unset (default `false`) |
 | `MIDDLEWARE_TRUST_CALLER_ORG_ID` | no | Set `true` or comma-separated allowlist to trust caller `X-Org-ID` (default `false`) |
