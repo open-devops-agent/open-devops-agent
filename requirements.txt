@@ -75,6 +75,9 @@ PyGithub>=2.3.0
 # azure-mgmt-servicebus>=8.0.0
 # azure-mgmt-batch>=17.0.0
 
+# --- Security (credential encryption at rest #60) ---
+cryptography>=42.0.0
+
 # --- Monitoring ---
 prometheus-client>=0.20.0
 

@@ -25,6 +25,8 @@ from pydantic import BaseModel
 from agent.core import DevOpsAgent
 from agent.classifier import classify_issue
 from api.api_auth import api_auth_disabled, require_org_access
+from api.ip_allowlist import allowlist_enabled, client_ip_from_headers, ip_allowed
+from api.rate_limit import check_rate_limit
 from api.webhook_auth import (
     _signatures_equal,
     bearer_token,
@@ -293,7 +295,29 @@ def _require_webhook_auth(
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 @app.middleware("http")
-async def _count_requests(request: Request, call_next):
+async def _security_and_metrics(request: Request, call_next):
+    path = request.url.path
+    # Optional IP allowlist (ALLOWED_IPS) — skip health/metrics for probes
+    if allowlist_enabled() and path not in ("/health", "/metrics"):
+        peer = request.client.host if request.client else None
+        ip = client_ip_from_headers(
+            request.headers.get("x-forwarded-for"),
+            request.headers.get("x-real-ip"),
+            peer,
+        )
+        if not ip_allowed(ip):
+            return JSONResponse(status_code=403, content={"detail": "IP not allowlisted"})
+
+    # Optional sliding-window rate limit (#64)
+    peer = request.client.host if request.client else "unknown"
+    retry_after = check_rate_limit(peer, path)
+    if retry_after is not None:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded"},
+            headers={"Retry-After": str(retry_after)},
+        )
+
     response = await call_next(request)
     route = request.scope.get("route")
     template = getattr(route, "path", None) or "unmatched"
@@ -350,7 +374,7 @@ async def get_audit(
 ):
     """Return recent incident audit log from cloud storage (org-scoped)."""
     org = org_id or os.getenv("ORG_ID", "default")
-    require_org_access(org, authorization)
+    require_org_access(org, authorization, min_role="viewer")
     events = incident_store.list_audit(org, limit=limit)
     return {"org_id": org, "events": events, "total": len(events)}
 
@@ -369,7 +393,7 @@ async def save_org_config(
     org_id: str, body: OrgConfigBody, authorization: Optional[str] = Header(None)
 ):
     """Store org-owned API keys and integrations (BYOK — not platform operator keys)."""
-    require_org_access(org_id, authorization)
+    require_org_access(org_id, authorization, min_role="admin")
     result = org_config.save(org_id, body.credentials)
     return {"status": "saved", **result}
 
@@ -377,7 +401,7 @@ async def save_org_config(
 @app.get("/orgs/{org_id}/config/status")
 async def org_config_status(org_id: str, authorization: Optional[str] = Header(None)):
     """Which credentials are configured for this org (values never returned)."""
-    require_org_access(org_id, authorization)
+    require_org_access(org_id, authorization, min_role="viewer")
     return org_config.status(org_id)
 
 
@@ -386,7 +410,7 @@ async def upload_doc_text(
     org_id: str, body: DocUploadBody, authorization: Optional[str] = Header(None)
 ):
     """Upload org documentation (runbooks, policies, playbooks) as text."""
-    require_org_access(org_id, authorization)
+    require_org_access(org_id, authorization, min_role="admin")
     try:
         key = org_docs.upload(org_id, body.path, body.content)
         return {"status": "uploaded", "org_id": org_id, "path": body.path, "storage_key": key}
@@ -402,7 +426,7 @@ async def upload_doc_file(
     authorization: Optional[str] = Header(None),
 ):
     """Upload org documentation from a file."""
-    require_org_access(org_id, authorization)
+    require_org_access(org_id, authorization, min_role="admin")
     content = (await file.read()).decode("utf-8")
     try:
         key = org_docs.upload(org_id, path, content, file.content_type or "text/plain")
@@ -416,7 +440,7 @@ async def list_org_docs(
     org_id: str, prefix: str = "", authorization: Optional[str] = Header(None)
 ):
     """List org documentation files."""
-    require_org_access(org_id, authorization)
+    require_org_access(org_id, authorization, min_role="viewer")
     return {"org_id": org_id, "docs": org_docs.list_docs(org_id, prefix)}
 
 
@@ -425,7 +449,7 @@ async def get_org_doc(
     org_id: str, doc_path: str, authorization: Optional[str] = Header(None)
 ):
     """Retrieve a single org documentation file."""
-    require_org_access(org_id, authorization)
+    require_org_access(org_id, authorization, min_role="viewer")
     content = org_docs.get(org_id, doc_path)
     if content is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -436,7 +460,7 @@ async def get_org_doc(
 async def delete_org_doc(
     org_id: str, doc_path: str, authorization: Optional[str] = Header(None)
 ):
-    require_org_access(org_id, authorization)
+    require_org_access(org_id, authorization, min_role="admin")
     if not org_docs.delete(org_id, doc_path):
         raise HTTPException(status_code=404, detail="Document not found")
     return {"status": "deleted", "org_id": org_id, "path": doc_path}

@@ -83,9 +83,10 @@ This agent follows **strict safety principles**:
 **Key Questions Answered:**
 
 **Q: Will it be hacked?**
-- Auth: API tokens + webhook HMAC (fail closed when secrets are configured / required)
-- TLS/SSL for communications when you terminate TLS at the edge or enable it in deploy
-- Deploy in a private network with VPN/bastion access
+- Auth: API tokens (with RBAC roles) + webhook HMAC
+- Optional IP allowlist (`ALLOWED_IPS`) and rate limits (`RATE_LIMIT_ENABLED`)
+- TLS/SSL encryption for all communications
+- Deploy in private network with VPN/bastion access
 - Complete audit trail of all actions
 - Regular security scanning in CI/CD
 
@@ -107,7 +108,9 @@ This agent follows **strict safety principles**:
 
 **Security Features (built today):**
 - Command whitelisting/blacklisting
-- Approval gates (Slack) for risky actions
+- Product RBAC roles on management API (admin / approver / viewer)
+- Optional credential encryption at rest (`ENCRYPT_CREDENTIALS`)
+- Optional API rate limiting (`RATE_LIMIT_ENABLED`) and IP allowlist (`ALLOWED_IPS`)
 - Real-time security scanning in CI/CD
 - Complete audit trail
 - Email notifications for dangerous operations
