@@ -22,7 +22,7 @@
 - No shell injection vulnerabilities
 - Uses `shlex.split()` for safe command execution
 - Input validation on all endpoints
-- Rate limiting on API endpoints
+- Rate limiting is **not** implemented in the API yet (tracked in [#64](https://github.com/open-devops-agent/open-devops-agent/issues/64)); apply limits at your edge/LB until then
 - Security scanning in CI/CD pipeline
 
 **Network Security:**

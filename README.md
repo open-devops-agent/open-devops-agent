@@ -83,38 +83,42 @@ This agent follows **strict safety principles**:
 **Key Questions Answered:**
 
 **Q: Will it be hacked?**
-- Multiple authentication layers (API key, webhook signatures, IP whitelist)
-- TLS/SSL encryption for all communications
-- Deploy in private network with VPN/bastion access
+- Auth: API tokens + webhook HMAC (fail closed when secrets are configured / required)
+- TLS/SSL for communications when you terminate TLS at the edge or enable it in deploy
+- Deploy in a private network with VPN/bastion access
 - Complete audit trail of all actions
 - Regular security scanning in CI/CD
-- No known vulnerabilities
 
 **Q: Will it delete anything?**
 - **NO** - Never deletes production data
 - All destructive operations permanently blocked
 - Email sent before ANY risky operation
 - Manual approval required for critical actions
-- Automatic rollback on failure
+- Rollback tools available if a fix fails
 - Complete safety checks
 
 **Q: Will fixes be accurate?**
-- **YES** - 98.5% success rate
+- Fixes are **verified after apply when tools report success**
 - AI-powered analysis (Claude)
 - Multi-stage verification (immediate + stability monitoring)
 - Confidence scoring before execution
-- Automatic rollback if fix fails
+- Rollback tools available if a fix fails
 - Human review for complex issues
 
-**Security Features:**
+**Security Features (built today):**
 - Command whitelisting/blacklisting
-- RBAC enforcement
-- Compliance validation (SOC2, ISO27001, CIS, NIST, GDPR, PCI-DSS)
-- Real-time security scanning
+- Approval gates (Slack) for risky actions
+- Real-time security scanning in CI/CD
 - Complete audit trail
 - Email notifications for dangerous operations
 - Emergency stop capability
 - **Database access optional (disabled by default)** — protects sensitive data
+
+**Not built yet (do not claim as product features):**
+- **Credentials encrypted at rest** — org credentials are stored as plaintext JSON; `#60` is still open. `ENCRYPT_CREDENTIALS` is documented but unused.
+- **Rate limiting on all endpoints** — not implemented in the API (only sketched in architecture docs); `#64` still covers rate limiting (auth fail-closed advanced separately).
+- **IP whitelisting** — not in the API; filter at your load balancer / network edge.
+- **RBAC enforcement** — overstated if described as full product RBAC. Bearer admin/org tokens exist; there is **no** role model (admin/viewer/approver). Kubernetes RBAC is for cluster access only, not agent product roles.
 
 **Read [SECURITY_GUARANTEES.md](SECURITY_GUARANTEES.md) for complete details.**
 

@@ -79,28 +79,26 @@ Root Directory:
 ### Q1: Can my organization use it securely?
 
 **YES - Enterprise-grade security:**
-- Multiple authentication layers (API key, webhook signatures, IP whitelist)
+- Multiple authentication layers (API key, webhook signatures)
 - TLS/SSL encryption
 - Deploy in private network
 - Complete audit trail
 - Regular security scanning
-- Compliance: SOC2, ISO27001, CIS, NIST, GDPR, PCI-DSS
 
 ### Q2: Will it be hacked?
 
-**Highly unlikely with proper configuration:**
-- Authentication required for all operations
-- Webhook signature verification
-- IP whitelisting available
+**With proper configuration:**
+- Authentication required for management/webhook operations (API tokens + webhook HMAC)
+- Webhook signature verification when secrets are set
+- IP allowlisting via your edge/LB (not built into the API)
 - Deploy behind VPN/bastion
 - No public internet exposure
 - Regular security updates
-- Zero known vulnerabilities
 
 **Security layers:**
-1. Authentication (API keys)
-2. Authorization (RBAC)
-3. Encryption (TLS, encrypted credentials)
+1. Authentication (API tokens + webhook HMAC)
+2. Authorization (admin/org bearer tokens — no product RBAC role model yet)
+3. Encryption in transit (TLS at the edge); credentials at rest not encrypted yet (#60)
 4. Network isolation (private network)
 5. Audit trail (complete logging)
 
@@ -141,26 +139,17 @@ For ANY risky operation:
 
 ### Q4: Will fixes be accurate?
 
-**YES - 98.5% success rate:**
+**Verified after apply when tools report success** — there is no overall marketed success percentage.
 
 **Accuracy mechanisms:**
 1. **AI Analysis** - Claude analyzes with context
 2. **Confidence Scoring** - Only executes if confidence > 80%
 3. **Immediate Verification** - Tests fix immediately
-4. **Stability Monitoring** - Monitors for 5 minutes
-5. **Automatic Rollback** - Reverts if fix fails
-
-**Success rates by fix type:**
-| Fix Type | Success Rate |
-|----------|--------------|
-| Service Restart | 99.5% |
-| Config Reload | 98.0% |
-| Timeout Increase | 97.5% |
-| Disk Cleanup | 99.0% |
-| Cache Clear | 99.8% |
+4. **Stability Monitoring** - Monitors for a verification window
+5. **Rollback tools** - Available if a fix fails
 
 **If fix fails:**
-- Automatic rollback to previous state
+- Rollback tools available (K8s / ArgoCD / Helm)
 - Email sent to SRE team
 - Detailed failure analysis
 - Manual steps provided
@@ -182,12 +171,11 @@ YES - Enterprise-grade security and safety built-in.
 Key Questions Answered:
 - Will it be hacked? NO - Multiple security layers
 - Will it delete anything? NO - Never deletes production data
-- Will fixes be accurate? YES - 98.5% success rate
+- Will fixes be accurate? Verified after apply when tools report success
 
 Security Features:
 - Command whitelisting/blacklisting
-- RBAC enforcement
-- Compliance validation
+- Approval gates
 - Complete audit trail
 - Email notifications
 - Emergency stop capability
@@ -305,29 +293,24 @@ DevOps team focuses on:
 ### What Makes It Secure
 
 **1. Authentication:**
-- API key required for all operations
-- Webhook signature verification
-- IP whitelisting support
-- Admin access separated
+- API tokens for management routes
+- Webhook HMAC / shared-token verification
+- IP allowlisting via your edge (not in-API)
+- Admin vs per-org tokens (no fine-grained product RBAC)
 
 **2. Safety:**
 - Command blacklist (destructive ops blocked)
 - Email before any risk
 - Complete audit trail
-- Automatic rollback
+- Rollback tools
 - Dry-run testing
 
-**3. Compliance:**
-- SOC2 Type II
-- ISO 27001
-- CIS Benchmarks
-- NIST Framework
-- GDPR compliant
-- PCI-DSS ready
-- HIPAA controls
+**3. Not product certifications:**
+- No SOC2 / ISO / GDPR / PCI certification claims
+- Optional advisory config scans only (see SECURITY_GUARANTEES.md)
 
 **4. Monitoring:**
-- Complete audit logs (90 days retention)
+- Complete audit logs (retention configurable)
 - Security event logging
 - SIEM integration support
 - Real-time alerting
@@ -547,15 +530,13 @@ Follow the guide in `docs/ORGANIZATIONAL_GUIDE.md`:
 
 **DONE** - `SECURITY_GUARANTEES.md` covers:
 - Multiple security layers
-- Authentication required
-- Encryption enabled
+- Authentication required (tokens + webhook HMAC)
 - Deploy in private network
 - Complete audit trail
 - Regular security scanning
-- Compliance certifications
-- No known vulnerabilities
+- Honest gaps: no credential encryption at rest (#60), no in-API rate limit (#64), no IP middleware, no product RBAC
 
-**Your org can use it securely**
+**Your org can use it securely with those limits understood**
 
 ### ✅ Won't delete anything
 
@@ -572,14 +553,14 @@ Follow the guide in `docs/ORGANIZATIONAL_GUIDE.md`:
 ### ✅ Fixes will be accurate
 
 **DONE** - `SECURITY_GUARANTEES.md` shows:
-- 98.5% success rate
+- Verification after apply when tools report success
 - AI-powered analysis
 - Multi-stage verification
 - Confidence scoring
-- Automatic rollback
+- Rollback tools
 - Complete documentation
 
-**Verified accuracy with monitoring and rollback**
+**Verified accuracy with monitoring and rollback tools**
 
 ---
 
@@ -592,7 +573,7 @@ Follow the guide in `docs/ORGANIZATIONAL_GUIDE.md`:
 ✅ SECURITY_GUARANTEES.md addresses security concerns
 ✅ Agent is secured against hacking
 ✅ Agent will never delete anything
-✅ Fixes are accurate (98.5% success rate)
+✅ Fixes verified after apply when tools report success (no marketed success %)
 
 **Your organization can deploy this agent with confidence.**
 
