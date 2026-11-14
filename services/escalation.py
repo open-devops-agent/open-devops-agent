@@ -67,6 +67,7 @@ class EscalationService:
         self.on_db = os.getenv("ESCALATION_ON_DB_ISSUES", "true").lower() == "true"
         self.on_unresolved = os.getenv("ESCALATION_ON_UNRESOLVED", "true").lower() == "true"
         self.on_ai_failure = os.getenv("ESCALATION_ON_AI_FAILURE", "true").lower() == "true"
+        self.on_security = os.getenv("ESCALATION_ON_SECURITY", "true").lower() == "true"
         for client in (self.email, self.jira, self.zoho, self.pagerduty):
             refresh = getattr(client, "refresh_credentials", None)
             if callable(refresh):
@@ -113,14 +114,25 @@ class EscalationService:
         if result.get("diagnosis") == "Max steps reached without resolution":
             reasons.append("max_steps_reached")
 
+        threats = result.get("threat_findings") or context.get("threat_findings") or {}
+        security_incident = (
+            context.get("type") == "security"
+            or result.get("issue_type") == "security"
+            or threats.get("highest_severity") in ("high", "critical")
+        )
+        if security_incident and self.on_security:
+            reasons.insert(0, "security_incident")
+
         if not reasons:
             return EscalationDecision(should_escalate=False, duration_minutes=duration_min)
 
         priority = "critical" if "database_issue" in reasons or "agent_error" in reasons else "high"
         if "timeout_unresolved" in reasons:
             priority = "high"
+        if "security_incident" in reasons and threats.get("highest_severity") == "critical":
+            priority = "critical"
 
-        issue_type = context.get("type", "unknown")
+        issue_type = result.get("issue_type") or context.get("type", "unknown")
         summary = self._build_summary(incident_id, issue_type, reasons)
         description = self._build_description(
             incident_id, org_id, context, result, reasons, duration_min, error

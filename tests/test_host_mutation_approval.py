@@ -91,6 +91,7 @@ NON_MUTATING_DISPATCH = {
     "capacity_check",
     "query_traces",
     "query_logs",
+    "detect_threats",
     "run_synthetic",
     "get_oncall_roster",
     "assign_incident_commander",

@@ -31,6 +31,7 @@ from collectors.jenkins import JenkinsCollector
 from collectors.bamboo import BambooCollector
 from collectors.azure_devops import AzureDevOpsCollector
 from collectors.docker import parse_build_error
+from collectors.threat_detector import detect_threats, detect_threats_in_text, is_actionable
 from collectors.argocd import ArgoCDCollector
 from collectors.helm import HelmCollector
 from collectors.aws import AWSCollector
@@ -61,7 +62,7 @@ from services.incident_store import IncidentStore
 from services.approval_store import CommandApprovalStore
 from services.org_docs import OrgDocs
 from services.org_context import org_agent_credentials
-from services.metrics import record_llm_usage, record_tool_call, record_verification
+from services.metrics import record_llm_usage, record_threat_findings, record_tool_call, record_verification
 from services.pii_scrubber import scrub_dict, scrub_text, scrub_value
 
 log = structlog.get_logger()
@@ -627,6 +628,22 @@ AGENT_TOOLS = [
         },
     },
     {
+        "name": "detect_threats",
+        "description": (
+            "Read-only. Scan log or command-output text for signs of an active attack: crypto miners, "
+            "reverse shells, brute force, shells in containers, credential-file access, download-and-execute, "
+            "history tampering, cloud threat findings. Returns findings with MITRE ATT&CK technique, severity, "
+            "evidence lines and indicators. Use it on output from query_logs, get_k8s_context or run_shell_command."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Log lines or command output to scan"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
         "name": "query_logs",
         "description": (
             "Search logs with LogQL in Loki, through Grafana (GRAFANA_LOKI_DATASOURCE_UID) "
@@ -1059,6 +1076,8 @@ class DevOpsAgent:
             issue_type = checkpoint.get("issue_type", issue_type)
         else:
             full_context = scrub_dict(await self._collect_context(context))
+            # Threat detection may have re-typed the incident to "security".
+            issue_type = full_context.get("type", issue_type)
             org_doc_context = self.org_docs.get_context_for_agent(org_id, issue_type)
             self.incident_store.save_log(org_id, incident_id, "collected_context.json", full_context)
 
@@ -1141,8 +1160,14 @@ class DevOpsAgent:
                     # earlier value here suppressed ESCALATION_ON_UNRESOLVED for
                     # exactly the fixes that verifiably did not work.
                     resolved = False
+                if issue_type == "security":
+                    # An attack is never closed by the agent alone: a human must confirm
+                    # containment, so it stays unresolved and escalates.
+                    resolved = False
                 result = {
                     "resolved": resolved,
+                    "issue_type": issue_type,
+                    "threat_findings": full_context.get("threat_findings"),
                     "diagnosis": final_text,
                     "actions": actions_taken,
                     "steps": steps,
@@ -1193,6 +1218,8 @@ class DevOpsAgent:
 
         result = {
             "resolved": False,
+            "issue_type": issue_type,
+            "threat_findings": full_context.get("threat_findings"),
             "diagnosis": "Max steps reached without resolution",
             "actions": actions_taken,
             "steps": steps,
@@ -1431,6 +1458,27 @@ class DevOpsAgent:
         except Exception as e:
             log.warning("Context collection partial failure", error=str(e))
             enriched["collection_error"] = str(e)
+
+        # Threat detection over everything collected so far (#166). Code review
+        # has its own malware heuristics and keeps its type.
+        if issue_type != "code_review":
+            try:
+                threats = detect_threats(enriched)
+                if threats["total"]:
+                    enriched["threat_findings"] = threats
+                    record_threat_findings(threats["findings"])
+                if is_actionable(threats) and issue_type != "security":
+                    # A miner first shows up as "high CPU"; handle it as the attack it is.
+                    enriched["original_type"] = issue_type
+                    enriched["type"] = "security"
+                    log.warning(
+                        "Threat detected; handling as a security incident",
+                        original_type=issue_type,
+                        techniques=threats["techniques"],
+                        highest_severity=threats["highest_severity"],
+                    )
+            except Exception as exc:  # detection is evidence, never a blocker
+                log.warning("threat_detection_failed", error=str(exc))
 
         return enriched
 
@@ -1724,6 +1772,10 @@ class DevOpsAgent:
                     backend=inputs.get("backend") or "tempo",
                     limit=int(inputs.get("limit") or 5),
                 )
+            elif name == "detect_threats":
+                threats = detect_threats_in_text(str(inputs.get("text") or ""))
+                record_threat_findings(threats["findings"])
+                return threats
             elif name == "query_logs":
                 return await self.observability.query_logs(
                     inputs["query"],
