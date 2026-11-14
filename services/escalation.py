@@ -122,6 +122,8 @@ class EscalationService:
         )
         if security_incident and self.on_security:
             reasons.insert(0, "security_incident")
+        if (result.get("prompt_injection") or context.get("prompt_injection")) and self.on_security:
+            reasons.append("prompt_injection")
 
         if not reasons:
             return EscalationDecision(should_escalate=False, duration_minutes=duration_min)
