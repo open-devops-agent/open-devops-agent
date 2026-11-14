@@ -95,7 +95,7 @@ This agent follows **strict safety principles**:
 - All destructive operations permanently blocked
 - Email sent before ANY risky operation
 - Manual approval required for critical actions
-- Automatic rollback on failure
+- Rollback tools available if a fix fails
 - Complete safety checks
 
 **Q: Will fixes be accurate?**
@@ -106,7 +106,7 @@ This agent follows **strict safety principles**:
 - Rollback tools available if a fix fails
 - Human review for complex issues
 
-**Security Features:**
+**Security Features (built today):**
 - Command whitelisting/blacklisting
 - Product RBAC roles on management API (admin / approver / viewer)
 - Optional credential encryption at rest (`ENCRYPT_CREDENTIALS`)
@@ -116,6 +116,12 @@ This agent follows **strict safety principles**:
 - Email notifications for dangerous operations
 - Emergency stop capability
 - **Database access optional (disabled by default)** — protects sensitive data
+
+**Not built yet (do not claim as product features):**
+- **Credentials encrypted at rest** — org credentials are stored as plaintext JSON; `#60` is still open. `ENCRYPT_CREDENTIALS` is documented but unused.
+- **Rate limiting on all endpoints** — not implemented in the API (only sketched in architecture docs); `#64` still covers rate limiting (auth fail-closed advanced separately).
+- **IP whitelisting** — not in the API; filter at your load balancer / network edge.
+- **RBAC enforcement** — overstated if described as full product RBAC. Bearer admin/org tokens exist; there is **no** role model (admin/viewer/approver). Kubernetes RBAC is for cluster access only, not agent product roles.
 
 **Read [SECURITY_GUARANTEES.md](SECURITY_GUARANTEES.md) for complete details.**
 
