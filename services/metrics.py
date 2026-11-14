@@ -16,7 +16,7 @@ REGISTRY = CollectorRegistry(auto_describe=True)
 
 INCIDENT_TYPES = {
     "k8s", "cicd", "server", "argocd", "helm", "terraform", "dockerfile",
-    "cloud_aws", "cloud_gcp", "cloud_azure", "observability", "data", "code_review",
+    "cloud_aws", "cloud_gcp", "cloud_azure", "observability", "data", "code_review", "security",
 }
 INCIDENT_SOURCES = {
     "alertmanager", "grafana", "github", "gitlab", "gitlab_ci", "bitbucket",
@@ -72,6 +72,12 @@ HTTP_REQUESTS = Counter(
     ["route", "method", "status"],
     registry=REGISTRY,
 )
+THREAT_FINDINGS = Counter(
+    "devops_agent_threat_findings_total",
+    "Threat-detector findings, by MITRE ATT&CK technique and severity.",
+    ["technique", "severity"],
+    registry=REGISTRY,
+)
 EMERGENCY_STOP = Gauge(
     "devops_agent_emergency_stop",
     "1 while AGENT_EMERGENCY_STOP is active.",
@@ -124,3 +130,10 @@ def record_verification(verification: Optional[dict]) -> None:
         return
     status = str(verification.get("status") or ("verified" if verification.get("verified") else "unknown"))
     FIX_VERIFICATIONS.labels(_bounded(status, {"verified", "failed", "unstable", "unknown"})).inc()
+
+
+def record_threat_findings(findings) -> None:
+    for finding in findings or []:
+        technique = str(finding.get("mitre_technique") or "unknown")[:16]
+        severity = str(finding.get("severity") or "unknown")
+        THREAT_FINDINGS.labels(technique, severity).inc()

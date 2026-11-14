@@ -21,8 +21,14 @@ def classify_issue(alertname: str, labels: dict) -> str:
         - observability: SLO, metrics, traces, synthetics, on-call, status page
         - data: databases, snapshots/DR, Kafka, Elasticsearch, Redis
         - code_review: pull/merge request review on GitHub/GitLab/Bitbucket/Azure/local git
+        - security: active threats (intrusion, malware, miners, brute force, ...); checked first
     """
     name = alertname.lower()
+
+    # Security first: an intrusion that mentions "container" or "ssh" must not
+    # be routed to the k8s or server playbooks.
+    if is_security_alert(name, labels):
+        return "security"
 
     # CI/CD specific keywords (check first to avoid conflicts with k8s "deployment")
     cicd_keywords = ["pipeline", "build", "ci", "release", "workflow", "job",
@@ -155,6 +161,42 @@ def classify_issue(alertname: str, labels: dict) -> str:
             return "cloud_azure"
 
     return "server"
+
+
+SECURITY_KEYWORDS = (
+    "falco", "guardduty", "intrusion", "bruteforce", "brute force", "brute-force",
+    "malware", "cryptominer", "crypto miner", "coinminer", "cryptomining", "xmrig",
+    "reverse shell", "reverseshell", "privilege escalation", "privilegeescalation",
+    "unauthorizedaccess", "unauthorized access", "backdoor", "rootkit", "ransomware",
+    "webshell", "web shell", "exfiltration", "credential theft", "credentialaccess",
+    "suspicious login", "suspicious process", "terminal shell in container",
+    "shell spawned", "threat detected", "securitycommandcenter", "security command center",
+    "defender for cloud", "wazuh", "ossec", "crowdstrike", "intrusion detection",
+)
+
+SECURITY_SOURCES = {
+    "falco", "falcosidekick", "guardduty", "aws_guardduty", "security_command_center",
+    "gcp_scc", "scc", "defender", "azure_defender", "wazuh", "ossec", "crowdstrike",
+    "sentinel", "siem", "security",
+}
+
+
+def is_security_alert(name: str, labels: dict) -> bool:
+    """True for alerts that describe an attack rather than an outage."""
+    name = (name or "").lower()
+    if any(k in name for k in SECURITY_KEYWORDS):
+        return True
+    labels = labels or {}
+    source = str(labels.get("source") or labels.get("alert_source") or "").lower()
+    if source in SECURITY_SOURCES:
+        return True
+    category = str(labels.get("category") or labels.get("alert_category") or "").lower()
+    if category in ("security", "threat", "intrusion"):
+        return True
+    return any(
+        str(labels.get(key, "")).lower() in ("true", "1", "yes")
+        for key in ("security", "threat", "security_incident")
+    ) or bool(labels.get("mitre_technique") or labels.get("falco_rule"))
 
 
 def get_cicd_platform(labels: dict, context: dict) -> str:

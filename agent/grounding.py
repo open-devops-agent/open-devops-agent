@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Set
 REQUIRES_TOOL_EVIDENCE: Set[str] = {
     "k8s", "cicd", "server", "argocd", "helm", "terraform",
     "cloud_aws", "cloud_gcp", "cloud_azure",
-    "observability", "data", "code_review",
+    "observability", "data", "code_review", "security",
 }
 
 # Tools that count as evidence-gathering (not just notify)
@@ -34,6 +34,7 @@ EVIDENCE_TOOLS: Set[str] = {
     "capacity_check",
     "query_traces",
     "query_logs",
+    "detect_threats",
     "run_synthetic",
     "get_oncall_roster",
     "check_database_health",

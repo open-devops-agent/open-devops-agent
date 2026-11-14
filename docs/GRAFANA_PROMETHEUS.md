@@ -228,6 +228,7 @@ scrape_configs:
 | `devops_agent_llm_tokens_total` | counter | `model`, `kind` (`input`/`output`/`cache_read_input`/`cache_creation_input`) |
 | `devops_agent_fix_verification_total` | counter | `status` (`verified`/`failed`/`unstable`) |
 | `devops_agent_http_requests_total` | counter | `route` (template, e.g. `/orgs/{org_id}/docs`), `method`, `status` |
+| `devops_agent_threat_findings_total` | counter | `technique` (MITRE ATT&CK ID), `severity` |
 | `devops_agent_emergency_stop` | gauge | none (1 while active) |
 
 Labels are kept low-cardinality: there are no incident IDs, orgs, repos or hosts, and unknown incident

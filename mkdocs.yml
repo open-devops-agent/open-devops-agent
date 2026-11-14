@@ -73,6 +73,7 @@ nav:
       - Safety guarantees: project/SECURITY_GUARANTEES.md
       - Security policy: SECURITY_POLICY.md
       - DevSecOps guide: DEVSECOPS_GUIDE.md
+      - Threat detection: THREAT_DETECTION.md
       - Security summary: SECURITY_SUMMARY.md
   - Project reference:
       - Features: FEATURES_SUMMARY.md
