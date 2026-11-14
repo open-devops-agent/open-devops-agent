@@ -83,12 +83,12 @@ This agent follows **strict safety principles**:
 **Key Questions Answered:**
 
 **Q: Will it be hacked?**
-- Multiple authentication layers (API key, webhook signatures, IP whitelist)
+- Auth: API tokens (with RBAC roles) + webhook HMAC
+- Optional IP allowlist (`ALLOWED_IPS`) and rate limits (`RATE_LIMIT_ENABLED`)
 - TLS/SSL encryption for all communications
 - Deploy in private network with VPN/bastion access
 - Complete audit trail of all actions
 - Regular security scanning in CI/CD
-- No known vulnerabilities
 
 **Q: Will it delete anything?**
 - **NO** - Never deletes production data
@@ -99,18 +99,19 @@ This agent follows **strict safety principles**:
 - Complete safety checks
 
 **Q: Will fixes be accurate?**
-- **YES** - 98.5% success rate
+- Fixes are **verified after apply when tools report success**
 - AI-powered analysis (Claude)
 - Multi-stage verification (immediate + stability monitoring)
 - Confidence scoring before execution
-- Automatic rollback if fix fails
+- Rollback tools available if a fix fails
 - Human review for complex issues
 
 **Security Features:**
 - Command whitelisting/blacklisting
-- RBAC enforcement
-- Compliance validation (SOC2, ISO27001, CIS, NIST, GDPR, PCI-DSS)
-- Real-time security scanning
+- Product RBAC roles on management API (admin / approver / viewer)
+- Optional credential encryption at rest (`ENCRYPT_CREDENTIALS`)
+- Optional API rate limiting (`RATE_LIMIT_ENABLED`) and IP allowlist (`ALLOWED_IPS`)
+- Real-time security scanning in CI/CD
 - Complete audit trail
 - Email notifications for dangerous operations
 - Emergency stop capability
