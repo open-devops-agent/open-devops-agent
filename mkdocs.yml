@@ -61,6 +61,7 @@ nav:
       - Platform support: PLATFORM_SUPPORT.md
       - Platform configuration: MULTI_PLATFORM_GUIDE.md
       - Grafana, Prometheus and Loki: GRAFANA_PROMETHEUS.md
+      - AI providers: AI_PROVIDERS.md
       - EC2 and Docker testing: E2E_EC2_DOCKER_TEST.md
       - Escalation: ESCALATION.md
   - API and development:

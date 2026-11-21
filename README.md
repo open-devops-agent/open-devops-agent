@@ -27,7 +27,8 @@ This agent is your **24/7 on-call teammate** that handles:
 - **Auto-escalation**: Creates Jira/Zoho tickets + Slack/email when the agent cannot resolve
 - **Centralized or co-located**: One agent server can fix remote EC2/K8s/cloud via SSH and APIs
 - **MCP server**: Expose DevOps tools to any MCP client (Cursor, Claude Desktop, custom agents)
-- **Bring your own keys (BYOK)**: Each org uses their own Anthropic, Slack, GitHub, and cloud credentials
+- **Bring your own keys (BYOK)**: Each org uses their own AI, Slack, GitHub, and cloud credentials
+- **Any AI provider**: Claude by default, or OpenAI, Google Gemini, Azure OpenAI, Ollama, or any OpenAI-compatible endpoint, per org ([AI providers](docs/AI_PROVIDERS.md))
 - **Plugin Architecture**: Easy to extend with custom collectors and tools
 
 ---
@@ -567,7 +568,9 @@ nano .env
 **Minimum required variables** (for webhook server — each org can also supply keys via MCP env or `PUT /orgs/{org}/config`):
 
 ```bash
-# AI Provider (required for built-in agent loop / diagnose_incident)
+# AI provider (required for the built-in agent loop / diagnose_incident).
+# Claude by default; or LLM_PROVIDER=openai | gemini | azure_openai | ollama | openai_compatible
+# with LLM_MODEL and that provider's key. See docs/AI_PROVIDERS.md.
 ANTHROPIC_API_KEY=your-claude-api-key
 
 # Email Alerts (CRITICAL - for dangerous operation notifications)

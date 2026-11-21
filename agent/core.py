@@ -12,7 +12,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import anthropic
 import structlog
 
 from agent.classifier import classify_issue, get_cicd_platform
@@ -23,6 +22,7 @@ from agent.grounding import (
     has_successful_remediation,
     validate_resolution,
 )
+from agent.llm import LLMTransientError, build_provider
 from agent.prompts import get_system_prompt
 from collectors.k8s import K8sCollector
 from collectors.github import GitHubCollector
@@ -1064,15 +1064,14 @@ class DevOpsAgent:
         self.claude_retry_delay = float(os.getenv("CLAUDE_RETRY_DELAY_SEC", "2"))
         self.model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
-    def _anthropic_client(self) -> anthropic.Anthropic:
-        key = os.getenv("ANTHROPIC_API_KEY")
-        if not key:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY not configured for this org. "
-                "Set it in your MCP env or via configure_org_credentials."
-            )
+    def _llm(self):
+        """The org's AI model provider (LLM_PROVIDER; Anthropic by default).
+
+        Cached in ``self.client``, which org credential refreshes reset, so each
+        org gets its own provider, model and key.
+        """
         if self.client is None:
-            self.client = anthropic.Anthropic(api_key=key)
+            self.client = build_provider(self.model)
         return self.client
 
     def _org_id(self, context: dict) -> str:
@@ -1348,29 +1347,27 @@ class DevOpsAgent:
         )
 
     def _call_claude(self, system_prompt: str, messages: list):
-        """Call Claude with exponential backoff retry on transient failures."""
+        """Call the org's model provider, retrying transient failures with backoff.
+
+        (Named for history; works with every provider in agent/llm.py.)
+        """
         last_error = None
         for attempt in range(1, self.claude_retries + 1):
             try:
-                response = self._anthropic_client().messages.create(
-                    model=self.model,
-                    max_tokens=4096,
+                provider = self._llm()
+                response = provider.create(
                     system=system_prompt,
-                    tools=AGENT_TOOLS,
                     messages=messages,
+                    tools=AGENT_TOOLS,
+                    max_tokens=4096,
                 )
-                record_llm_usage(self.model, getattr(response, "usage", None))
+                record_llm_usage(provider.model, getattr(response, "usage", None))
                 return response
-            except (
-                anthropic.APIConnectionError,
-                anthropic.RateLimitError,
-                anthropic.InternalServerError,
-                anthropic.APITimeoutError,
-            ) as e:
+            except LLMTransientError as e:
                 last_error = e
                 if attempt < self.claude_retries:
                     delay = self.claude_retry_delay * (2 ** (attempt - 1))
-                    log.warning("Claude API retry", attempt=attempt, delay=delay, error=str(e))
+                    log.warning("Model API retry", attempt=attempt, delay=delay, error=str(e))
                     time.sleep(delay)
                 else:
                     raise
