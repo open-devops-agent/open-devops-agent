@@ -146,10 +146,17 @@ async def _process_incident_with_org_creds(
 
     except Exception as e:
         log.error("Incident handling failed", id=incident_id, error=str(e))
+        # A failed run still carries what the agent established before failing
+        # (security re-type, threat findings, prompt injection).
+        partial = getattr(e, "partial_result", None) if result is None else None
         if result is None:
-            metrics.record_incident(context, "failed", time.monotonic() - processing_started)
+            metrics.record_incident(
+                {**context, "type": (partial or {}).get("issue_type") or context.get("type")},
+                "failed",
+                time.monotonic() - processing_started,
+            )
         decision = escalation_service.evaluate(
-            incident_id, org_id, context, result, started_at, error=str(e)
+            incident_id, org_id, context, result or partial, started_at, error=str(e)
         )
         escalation_outcome = None
         if decision.should_escalate:
@@ -164,6 +171,8 @@ async def _process_incident_with_org_creds(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "incident": context,
             "resolved": False,
+            "issue_type": (partial or {}).get("issue_type") or context.get("type"),
+            "threat_findings": (partial or {}).get("threat_findings"),
             "error": scrub_text(str(e)),
             "escalated": decision.should_escalate,
             "escalation_reasons": decision.reasons,

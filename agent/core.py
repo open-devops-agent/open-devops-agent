@@ -1004,6 +1004,9 @@ class DevOpsAgent:
         self.max_steps = int(os.getenv("MAX_AGENT_STEPS", "10"))
         self.auto_apply = os.getenv("AUTO_APPLY", "false").lower() == "true"
         self._pending_approvals: dict[str, str] = {}
+        # What each running incident has established so far (type, findings), so
+        # a failure mid-run can still be escalated correctly.
+        self._run_state: dict[str, dict] = {}
         self.incident_store = IncidentStore()
         self.org_docs = OrgDocs()
         self.claude_retries = int(os.getenv("CLAUDE_API_RETRIES", "3"))
@@ -1040,9 +1043,27 @@ class DevOpsAgent:
         with org_agent_credentials(org_id, self):
             self.auto_apply = os.getenv("AUTO_APPLY", "false").lower() == "true"
             self.model = os.getenv("CLAUDE_MODEL", self.model)
-            return await self._run_with_org_context(
-                context, incident_id, resume, org_id, issue_type
-            )
+            try:
+                return await self._run_with_org_context(
+                    context, incident_id, resume, org_id, issue_type
+                )
+            except Exception as exc:
+                # Keep what was already established (e.g. a security re-type and
+                # its threat findings) for escalation, even though the run failed.
+                state = self._run_state.get(incident_id) or {}
+                full_context = state.get("full_context") or {}
+                try:
+                    exc.partial_result = {
+                        "resolved": False,
+                        "issue_type": state.get("issue_type", issue_type),
+                        "threat_findings": full_context.get("threat_findings"),
+                        "prompt_injection": full_context.get("prompt_injection"),
+                    }
+                except AttributeError:  # exception types that refuse new attributes
+                    pass
+                raise
+            finally:
+                self._run_state.pop(incident_id, None)
 
     async def _run_with_org_context(
         self,
@@ -1074,10 +1095,12 @@ class DevOpsAgent:
             steps = checkpoint.get("steps", 0)
             full_context = checkpoint.get("full_context", {})
             issue_type = checkpoint.get("issue_type", issue_type)
+            self._run_state[incident_id] = {"issue_type": issue_type, "full_context": full_context}
         else:
             full_context = scrub_dict(await self._collect_context(context))
             # Threat detection may have re-typed the incident to "security".
             issue_type = full_context.get("type", issue_type)
+            self._run_state[incident_id] = {"issue_type": issue_type, "full_context": full_context}
             org_doc_context = self.org_docs.get_context_for_agent(org_id, issue_type)
             self.incident_store.save_log(org_id, incident_id, "collected_context.json", full_context)
 
