@@ -14,21 +14,21 @@
 - No external data exfiltration
 - All operations logged and audited
 - The six host-mutating tools require approval for live changes when `AUTO_APPLY=false`; dry runs remain available.
-- Org credentials stored without application-level encryption
+- Org credentials encrypted at rest when `ENCRYPT_CREDENTIALS=true` + `CREDENTIALS_MASTER_KEY` ([services/credential_crypto.py](services/credential_crypto.py)); otherwise plaintext JSON
 - API keys never logged
-- Org config, docs and audit routes require a bearer token: `API_ADMIN_TOKEN` (all orgs) or a per-org token from `API_ORG_TOKENS` (its own org only). They fail closed with 503 when no token is configured ([api/api_auth.py](api/api_auth.py)). There are no finer-grained roles.
+- Org config, docs and audit routes require a bearer token: `API_ADMIN_TOKEN` (platform admin) or `API_ORG_TOKENS` with roles (`org=…`, `org:viewer=…`, `org:approver=…`, `org:admin=…`). Hierarchy admin > approver > viewer. Fails closed with 503 when no token is configured ([api/api_auth.py](api/api_auth.py)).
 
 **Code Security:**
 - No shell injection vulnerabilities
 - Uses `shlex.split()` for safe command execution
 - Input validation on all endpoints
-- Rate limiting on API endpoints
+- Optional rate limiting when `RATE_LIMIT_ENABLED=true` ([api/rate_limit.py](api/rate_limit.py)); still recommend edge/LB limits for multi-worker
 - Security scanning in CI/CD pipeline
 
 **Network Security:**
 - TLS/SSL encryption for all communications
 - Webhook authentication is checked when `WEBHOOK_SECRET` is configured ([webhook gate](api/server.py#L264)).
-- IP filtering must be configured in the deployment network; the API has no IP allowlist middleware ([API application and routes](api/server.py#L250)).
+- Optional IP allowlist via `ALLOWED_IPS` ([api/ip_allowlist.py](api/ip_allowlist.py)); also filter at the load balancer when possible
 - Alertmanager and Grafana accept `WEBHOOK_SECRET` as a bearer token or an HMAC signature ([webhook handlers](api/server.py#L468)).
 - Optional VPN/bastion integration
 
@@ -51,13 +51,15 @@ With `WEBHOOK_SECRET` set, webhook handlers check HMAC-SHA256 signatures or supp
 
 Slack actions verify Slack signatures and request timestamps when `SLACK_SIGNING_SECRET` is configured; the check accepts requests when that secret is unset ([Slack handler](api/server.py#L678), [Slack verification](api/webhook_auth.py#L97)).
 
+The API logs a warning at startup for each of `WEBHOOK_SECRET` and `SLACK_SIGNING_SECRET` that is unset, so running without them is visible in the logs; requests are still accepted ([startup check](api/server.py#L240)).
+
 **Layer 2: Authorization**
 
-Org config, docs and audit routes check a bearer token against `API_ADMIN_TOKEN` (every org) or the caller's org token in `API_ORG_TOKENS`; a token for one org gets 403 on another, and the routes return 503 when no token is configured ([api/api_auth.py](api/api_auth.py)). There are no finer-grained roles. The MCP server's `sse`/`streamable-http` transports require `MCP_AUTH_TOKEN`, can be bound to one org with `MCP_ORG_ID`, and only expose `configure_org_credentials` with `MCP_ALLOW_CREDENTIAL_WRITE=true` ([devops_mcp/auth.py](devops_mcp/auth.py)). Keep deployment-level access controls in place as well.
+Org config, docs and audit routes check a bearer token against `API_ADMIN_TOKEN` (every org, admin role) or `API_ORG_TOKENS` entries (`org=token` or `org:role=token`). Write routes require admin; read routes accept viewer+. A token for one org gets 403 on another; routes return 503 when no token is configured ([api/api_auth.py](api/api_auth.py)). The MCP server's `sse`/`streamable-http` transports require `MCP_AUTH_TOKEN`, can be bound to one org with `MCP_ORG_ID`, and only expose `configure_org_credentials` with `MCP_ALLOW_CREDENTIAL_WRITE=true` ([devops_mcp/auth.py](devops_mcp/auth.py)). Keep deployment-level access controls in place as well.
 
 **Layer 3: Encryption**
 
-Org credentials are stored as plaintext JSON at `{org_id}/config/credentials.json`; application-level credential encryption is not implemented.
+Org credentials are stored at `{org_id}/config/credentials.json`. With `ENCRYPT_CREDENTIALS=true` and `CREDENTIALS_MASTER_KEY`, the blob is Fernet-encrypted before write; otherwise plaintext JSON (migration: plaintext reads still work).
 
 ```bash
 # TLS for all connections
@@ -401,7 +403,7 @@ TLS_ENABLED=true
 
 Webhook and Slack authentication use these separate secrets; the management API uses `API_ADMIN_TOKEN` / `API_ORG_TOKENS` (setting `API_KEY` does nothing) ([webhook gate](api/server.py#L264), [Slack verification](api/webhook_auth.py#L97), [API application](api/server.py#L250)).
 
-`ENCRYPT_CREDENTIALS` is not read by the application and does not enable credential encryption.
+`ENCRYPT_CREDENTIALS=true` enables Fernet encryption via `CREDENTIALS_MASTER_KEY` (or `CREDENTIALS_MASTER_KEY_FILE`).
 
 **2. Network Security:**
 ```bash
@@ -511,15 +513,15 @@ jq '.timestamp > "2026-06-12T12:00:00Z"' audit.log
 - Complete audit trail
 - Advisory CIS/SOC2/PCI-labelled configuration checks, not compliance certification ([scanner dispatch](collectors/security_scanner.py#L280)).
 - Network isolation support
-- Org credential storage has no application-level encryption
+- Org credential encryption at rest is optional (`ENCRYPT_CREDENTIALS` + `CREDENTIALS_MASTER_KEY`)
 
 ### Q2: Will it be hacked?
 
 **Highly unlikely with proper configuration:**
 
-- Webhook shared-secret checks require `WEBHOOK_SECRET`; the management API requires `API_ADMIN_TOKEN` or a per-org `API_ORG_TOKENS` token; there is no finer-grained RBAC ([webhook gate](api/server.py#L264), [API handlers](api/server.py#L304)).
+- Webhook shared-secret checks require `WEBHOOK_SECRET`; the management API requires `API_ADMIN_TOKEN` or `API_ORG_TOKENS` with optional viewer/approver/admin roles ([webhook gate](api/server.py#L264), [API handlers](api/server.py#L304)).
 - Slack signature verification requires `SLACK_SIGNING_SECRET` ([Slack verifier](api/webhook_auth.py#L97)). Restrict who can click Approve with `SLACK_APPROVER_IDS` (global or per org); each decision is recorded with the Slack user who made it.
-- Configure IP filtering in the deployment network; the API has no IP allowlist middleware ([application setup and routes](api/server.py#L250)).
+- Optional `ALLOWED_IPS` allowlist in the API; also configure IP filtering at the load balancer ([api/ip_allowlist.py](api/ip_allowlist.py)).
 - Deploy in private network
 - VPN/bastion access only
 - Regular security scanning

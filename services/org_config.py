@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
+from services.credential_crypto import unwrap_from_storage, wrap_for_storage
 from storage.base import StorageProvider
 from storage.factory import get_storage
 
@@ -104,13 +105,23 @@ class OrgConfig:
             if k in ORG_CREDENTIAL_KEYS and v is not None and str(v).strip()
         }
         key = self._config_key(org_id)
-        self.storage.put_json(key, filtered)
-        log.info("Org credentials saved", org_id=org_id, keys=list(filtered.keys()))
-        return {"org_id": org_id, "configured_keys": list(filtered.keys())}
+        payload = wrap_for_storage(filtered)
+        self.storage.put_json(key, payload)
+        log.info(
+            "Org credentials saved",
+            org_id=org_id,
+            keys=list(filtered.keys()),
+            encrypted=bool(payload.get("_encrypted")),
+        )
+        return {
+            "org_id": org_id,
+            "configured_keys": list(filtered.keys()),
+            "encrypted_at_rest": bool(payload.get("_encrypted")),
+        }
 
     def get(self, org_id: str) -> dict:
         data = self.storage.get_json(self._config_key(org_id))
-        return data or {}
+        return unwrap_from_storage(data)
 
     def delete(self, org_id: str) -> bool:
         return self.storage.delete(self._config_key(org_id))
