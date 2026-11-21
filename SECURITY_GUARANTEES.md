@@ -51,6 +51,8 @@ With `WEBHOOK_SECRET` set, webhook handlers check HMAC-SHA256 signatures or supp
 
 Slack actions verify Slack signatures and request timestamps when `SLACK_SIGNING_SECRET` is configured; the check accepts requests when that secret is unset ([Slack handler](api/server.py#L678), [Slack verification](api/webhook_auth.py#L97)).
 
+The API logs a warning at startup for each of `WEBHOOK_SECRET` and `SLACK_SIGNING_SECRET` that is unset, so running without them is visible in the logs; requests are still accepted ([startup check](api/server.py#L240)).
+
 **Layer 2: Authorization**
 
 Org config, docs and audit routes check a bearer token against `API_ADMIN_TOKEN` (every org, admin role) or `API_ORG_TOKENS` entries (`org=token` or `org:role=token`). Write routes require admin; read routes accept viewer+. A token for one org gets 403 on another; routes return 503 when no token is configured ([api/api_auth.py](api/api_auth.py)). The MCP server's `sse`/`streamable-http` transports require `MCP_AUTH_TOKEN`, can be bound to one org with `MCP_ORG_ID`, and only expose `configure_org_credentials` with `MCP_ALLOW_CREDENTIAL_WRITE=true` ([devops_mcp/auth.py](devops_mcp/auth.py)). Keep deployment-level access controls in place as well.
