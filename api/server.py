@@ -30,6 +30,7 @@ from api.rate_limit import check_rate_limit
 from api.webhook_auth import (
     _signatures_equal,
     bearer_token,
+    get_slack_signing_secret,
     get_webhook_secret,
     verify_slack_signature,
     verify_webhook_auth,
@@ -236,6 +237,24 @@ async def enqueue_incident(context: dict, incident_id: Optional[str] = None) -> 
     return incident_queue.enqueue(org, context, incident_id)
 
 
+def _warn_missing_webhook_secrets() -> None:
+    """Warn at startup when webhook or Slack signature verification is off (#64).
+
+    Without these secrets every request to the matching endpoints is accepted
+    unauthenticated, so a production misconfiguration should not be silent.
+    """
+    if not get_webhook_secret():
+        log.warning(
+            "WEBHOOK_SECRET is not set: /webhook/* requests are accepted without "
+            "signature or token verification"
+        )
+    if not get_slack_signing_secret():
+        log.warning(
+            "SLACK_SIGNING_SECRET is not set: /slack/action requests are accepted "
+            "without signature verification"
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _queue_worker_task, _retention_task, _background_lock_handle, _queue_running
@@ -244,6 +263,7 @@ async def lifespan(app: FastAPI):
         log.warning(
             "API_AUTH_DISABLED=true: org config, docs and audit endpoints are unauthenticated"
         )
+    _warn_missing_webhook_secrets()
     _background_lock_handle = acquire_background_worker_lock()
     try:
         incident_queue.adopt_legacy_reviews()
