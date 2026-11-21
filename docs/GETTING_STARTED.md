@@ -59,8 +59,12 @@ nano .env  # or use your favorite editor
 **Minimum required configuration:**
 
 ```bash
-# Required: Claude AI API Key
+# Required: an AI provider key. Claude by default:
 ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
+# ...or another provider, for example Google Gemini (see AI_PROVIDERS.md):
+# LLM_PROVIDER=gemini
+# LLM_MODEL=<gemini model>
+# GEMINI_API_KEY=AIza...
 
 # Required: Slack notifications
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
@@ -79,7 +83,7 @@ AUTO_APPLY=false
 
 **Where to get API keys:**
 
-- **Anthropic API Key**: https://console.anthropic.com/
+- **AI provider key** (one of): Anthropic https://console.anthropic.com/ · OpenAI https://platform.openai.com/api-keys · Google Gemini https://aistudio.google.com/apikey · Azure OpenAI (your Azure resource) · Ollama (none). See [AI providers](AI_PROVIDERS.md).
 - **Slack Webhook**: https://api.slack.com/messaging/webhooks
 - **GitHub Token**: https://github.com/settings/tokens (needs `repo` scope)
 

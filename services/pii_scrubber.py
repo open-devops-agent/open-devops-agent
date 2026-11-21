@@ -11,13 +11,14 @@ _PATTERNS: List[tuple] = [
     (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"), "[REDACTED_EMAIL]"),
     (re.compile(r"\b(?:sk-ant-|sk-|ghp_|gho_|ghu_|ghs_|ghr_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{10,}\b"), "[REDACTED_TOKEN]"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_AWS_KEY]"),
+    (re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"), "[REDACTED_GOOGLE_KEY]"),
     (re.compile(r"\b(?:aws_secret_access_key|secret_key|api_key|apikey|password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\"]{4,}", re.I), "[REDACTED_CREDENTIAL]"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), "[REDACTED_JWT]"),
     (re.compile(r"\b(?:Bearer\s+)[A-Za-z0-9._-]{20,}\b", re.I), "Bearer [REDACTED_TOKEN]"),
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[REDACTED_SSN]"),
     (re.compile(r"\b(?:\d[ -]*?){13,16}\b"), "[REDACTED_CARD]"),
     (re.compile(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"), "[REDACTED_PHONE]"),
-    (re.compile(r"(?i)(?:authorization|x-api-key|cookie)\s*:\s*[^\s,;]+"), "[REDACTED_HEADER]"),
+    (re.compile(r"(?i)(?:authorization|x-api-key|api-key|cookie)\s*:\s*[^\s,;]+"), "[REDACTED_HEADER]"),
     (re.compile(r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC )?PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY]"),
 ]
 

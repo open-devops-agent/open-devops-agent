@@ -20,6 +20,17 @@ log = structlog.get_logger()
 # Keys orgs own — never shared across tenants on a multi-org server.
 ORG_CREDENTIAL_KEYS = [
     "ANTHROPIC_API_KEY",
+    # AI provider selection (#181): each org can use its own provider and model.
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "LLM_API_KEY",
+    "LLM_BASE_URL",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_API_VERSION",
     "SLACK_WEBHOOK_URL",
     "SLACK_APPROVAL_CHANNEL",
     "SLACK_APPROVER_IDS",
