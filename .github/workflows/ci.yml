@@ -393,6 +393,94 @@ jobs:
           fi
           echo "✓ Invalid JSON rejected: $body"
 
+      - name: Define Webhook Test Helpers
+        run: |
+          cat > "$RUNNER_TEMP/webhook_helpers.sh" << 'EOF'
+          # post <path> <body> [extra curl args...]: sets $status and $body
+          post() {
+            local path=$1 data=$2 body_file
+            shift 2
+            body_file=$(mktemp)
+            status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST "http://localhost:8000$path" \
+              -H "Content-Type: application/json" "$@" -d "$data") || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
+            body=$(cat "$body_file")
+          }
+          # expect <label> <http status> <jq filter that must be true>
+          expect() {
+            if [ "$status" != "$2" ] || ! jq -e "$3" <<<"$body" >/dev/null; then
+              echo "::error::$1: unexpected response: HTTP $status, body: $body"
+              exit 1
+            fi
+            echo "✓ $1: $body"
+          }
+          QUEUED='.status == "queued" and (.incident_id | type == "string" and length > 0)'
+          INVALID_JSON='.detail == "JSON object required"'
+          EOF
+
+      - name: Test GitHub Webhook
+        run: |
+          source "$RUNNER_TEMP/webhook_helpers.sh"
+          post /webhook/github '{"workflow_run": {"conclusion": "failure", "id": 123, "name": "CI", "head_branch": "main", "head_sha": "abcdef1234567890"}, "repository": {"full_name": "test/repo"}}' \
+            -H "X-GitHub-Event: workflow_run"
+          expect "GitHub failed workflow_run queued" 200 "$QUEUED and .type == \"cicd\""
+          post /webhook/github '{"action": "opened", "pull_request": {"number": 7, "title": "Test PR", "draft": false, "user": {"login": "ci"}, "base": {"ref": "main"}, "head": {"ref": "feature"}}, "repository": {"full_name": "test/repo"}}' \
+            -H "X-GitHub-Event: pull_request"
+          expect "GitHub opened PR queued for review" 200 "$QUEUED and .type == \"code_review\""
+          post /webhook/github '{"action": "opened", "pull_request": {"number": 8, "draft": true}, "repository": {"full_name": "test/repo"}}' \
+            -H "X-GitHub-Event: pull_request"
+          expect "GitHub draft PR ignored" 200 '.status == "ignored" and .reason == "draft_pr"'
+          post /webhook/github '{"ref": "refs/heads/main"}' -H "X-GitHub-Event: push"
+          expect "GitHub push event ignored" 200 '.status == "ignored" and .event == "push"'
+          post /webhook/github 'not json' -H "X-GitHub-Event: push"
+          expect "GitHub invalid JSON rejected" 400 "$INVALID_JSON"
+
+      - name: Test GitLab Webhook
+        run: |
+          source "$RUNNER_TEMP/webhook_helpers.sh"
+          post /webhook/gitlab '{"object_kind": "pipeline", "object_attributes": {"id": 99, "status": "failed"}, "project": {"id": 42}}' \
+            -H "X-Gitlab-Event: Pipeline Hook"
+          expect "GitLab failed pipeline queued" 200 "$QUEUED and .type == \"cicd\""
+          post /webhook/gitlab '{"object_kind": "merge_request", "object_attributes": {"action": "open", "iid": 5, "state": "opened", "title": "Test MR", "target_branch": "main", "source_branch": "feature"}, "project": {"id": 42}, "user": {"username": "ci"}}' \
+            -H "X-Gitlab-Event: Merge Request Hook"
+          expect "GitLab opened MR queued for review" 200 "$QUEUED and .type == \"code_review\""
+          post /webhook/gitlab '{"object_kind": "pipeline", "object_attributes": {"id": 100, "status": "success"}, "project": {"id": 42}}' \
+            -H "X-Gitlab-Event: Pipeline Hook"
+          expect "GitLab successful pipeline ignored" 200 '.status == "ignored" and .event == "pipeline hook"'
+          post /webhook/gitlab 'not json' -H "X-Gitlab-Event: Pipeline Hook"
+          expect "GitLab invalid JSON rejected" 400 "$INVALID_JSON"
+
+      - name: Test Bitbucket Webhook
+        run: |
+          source "$RUNNER_TEMP/webhook_helpers.sh"
+          post /webhook/bitbucket '{"pullrequest": {"id": 3, "state": "OPEN", "title": "Test PR", "author": {"display_name": "ci"}, "destination": {"branch": {"name": "main"}}, "source": {"branch": {"name": "feature"}}}, "repository": {"slug": "repo", "workspace": {"slug": "test"}}}' \
+            -H "X-Event-Key: pullrequest:created"
+          expect "Bitbucket created PR queued for review" 200 "$QUEUED and .type == \"code_review\""
+          post /webhook/bitbucket '{}' -H "X-Event-Key: repo:push"
+          expect "Bitbucket unsupported event ignored" 200 '.status == "ignored" and .reason == "unsupported_event" and .event == "repo:push"'
+          post /webhook/bitbucket 'not json' -H "X-Event-Key: pullrequest:created"
+          expect "Bitbucket invalid JSON rejected" 400 "$INVALID_JSON"
+
+      - name: Test Alertmanager Webhook
+        run: |
+          source "$RUNNER_TEMP/webhook_helpers.sh"
+          alert='{"alerts": [{"status": "firing", "labels": {"alertname": "CIPodCrashLooping", "namespace": "test", "pod": "dummy-pod"}, "annotations": {"summary": "CI test alert"}, "startsAt": "2026-01-01T00:00:00Z"}]}'
+          post /webhook/alertmanager "$alert"
+          expect "Alertmanager firing alert queued" 200 '.status == "queued" and (.incident_ids | length == 1)'
+          first_id=$(jq -r '.incident_ids[0]' <<<"$body")
+          post /webhook/alertmanager "$alert"
+          expect "Alertmanager repeated alert deduplicated" 200 \
+            ".status == \"duplicate\" and .incident_ids == [] and .duplicate_of == [\"$first_id\"]"
+          post /webhook/alertmanager 'not json'
+          expect "Alertmanager invalid JSON rejected" 400 "$INVALID_JSON"
+
+      - name: Test Grafana Webhook
+        run: |
+          source "$RUNNER_TEMP/webhook_helpers.sh"
+          post /webhook/grafana '{"alerts": [{"status": "firing", "labels": {"alertname": "CIHighErrorRate", "service": "api"}, "annotations": {"summary": "CI test alert"}, "startsAt": "2026-01-01T00:00:00Z", "dashboardURL": "http://grafana.local/d/ci", "panelURL": "http://grafana.local/d/ci?viewPanel=1"}]}'
+          expect "Grafana firing alert queued" 200 '.status == "queued" and (.incident_ids | length == 1)'
+          post /webhook/grafana 'not json'
+          expect "Grafana invalid JSON rejected" 400 "$INVALID_JSON"
+
       - name: Check Audit Endpoint
         run: |
           status=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8000/audit)
