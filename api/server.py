@@ -89,7 +89,7 @@ async def process_incident(entry: dict):
 
     log.info("Processing incident", id=incident_id, org_id=org_id)
 
-    with org_agent_credentials(org_id, agent, escalation_service):
+    async with org_agent_credentials(org_id, agent, escalation_service):
         await _process_incident_with_org_creds(entry, incident_id, org_id, context, started_at)
 
 

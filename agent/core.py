@@ -1090,7 +1090,7 @@ class DevOpsAgent:
         )
         issue_type = context.get("type", "server")
 
-        with org_agent_credentials(org_id, self):
+        async with org_agent_credentials(org_id, self):
             self.auto_apply = os.getenv("AUTO_APPLY", "false").lower() == "true"
             self.model = os.getenv("CLAUDE_MODEL", self.model)
             try:
@@ -1378,7 +1378,7 @@ class DevOpsAgent:
     ):
         """Execute a command that was approved via Slack."""
         org_id = org_id or os.getenv("ORG_ID", "default")
-        with org_agent_credentials(org_id, self):
+        async with org_agent_credentials(org_id, self):
             log.info("Executing approved action", incident_id=incident_id, command=command)
             result = await self.executor.run(command)
             if result.get("emergency_stop"):
@@ -1611,7 +1611,7 @@ class DevOpsAgent:
         """Public entry point for tool execution (used by MCP and external agents)."""
         ctx = context or {}
         org_id = ctx.get("org_id") or os.getenv("ORG_ID", "default")
-        with org_agent_credentials(org_id, self):
+        async with org_agent_credentials(org_id, self):
             self.auto_apply = os.getenv("AUTO_APPLY", "false").lower() == "true"
             result = await self._execute_tool(name, inputs, ctx)
             record_tool_call(name, result, _AGENT_TOOL_NAMES)

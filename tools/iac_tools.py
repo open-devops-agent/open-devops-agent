@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 import structlog
+from services.org_env import subprocess_env
 
 log = structlog.get_logger()
 
@@ -69,6 +70,7 @@ class IaCTools:
                 cwd=str(workspace),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=subprocess_env(),
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             return {
