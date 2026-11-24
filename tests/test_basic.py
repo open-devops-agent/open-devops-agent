@@ -86,7 +86,7 @@ def test_safe_executor_whitelist():
     
     # Test dangerous command
     classification_dangerous = executor._classify('kubectl delete pod test')
-    assert classification_dangerous == 'requires_approval'
+    assert classification_dangerous == 'blocked'  # permanently, never runs
 
 
 class TestK8sCollector:

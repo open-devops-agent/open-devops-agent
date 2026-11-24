@@ -155,6 +155,12 @@ The scanner uses text matching for privileged-container flags, missing non-root 
 
 **NO - The agent NEVER deletes production data.**
 
+How this is enforced in the command executor ([tools/executor.py](tools/executor.py)):
+
+- **Permanently blocked, never run, not even with approval or `AUTO_APPLY=true`:** `kubectl delete`/`drain`, `helm uninstall`, recursive or root `rm`, `mkfs`/`wipefs`, raw `dd`/redirects to block devices, `DROP DATABASE/TABLE`, `TRUNCATE TABLE`, `DELETE FROM`, AWS/GCP/Azure delete and terminate, `terraform destroy`, scaling to zero replicas, and Docker volume/system prune. A blocked command emails the team (when `EMAIL_ENABLED=true`) and can only be run by a human, manually.
+- **Always needs human approval, whatever `AUTO_APPLY` says:** `kubectl exec`, single-file `rm`, `kill -9`, `shutdown`/`reboot`, and any command not on the safe or auto-apply lists. `AUTO_APPLY=true` only auto-runs the listed restarts, scales and applies.
+- **Chained commands are checked part by part.** In `a; b`, `a && b` and `a || b`, the most restrictive part wins. After a pipe, only read-only filters (`grep`, `head`, `tail`, `wc`, `sort`, `jq`, …) keep a command safe, and command substitution or redirection always needs approval.
+
 **What It Will NEVER Do:**
 
 ```
