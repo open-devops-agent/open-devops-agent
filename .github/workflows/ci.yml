@@ -211,10 +211,16 @@ jobs:
           assert executor._classify('kubectl logs myapp') == 'safe', 'Expected safe'
           print('✓ Safe executor classify safe commands test passed')
 
-          # Test _classify: mutating commands require approval (AUTO_APPLY=false by default)
-          assert executor._classify('kubectl delete pod myapp') == 'requires_approval', 'Expected requires_approval'
+          # Test _classify: destructive commands are permanently blocked (never run, even if approved)
+          assert executor._classify('kubectl delete pod myapp') == 'blocked', 'Expected blocked'
+          assert executor._classify('rm -rf /tmp/test') == 'blocked', 'Expected blocked'
+          assert executor._classify('uptime && kubectl delete ns prod') == 'blocked', 'Expected blocked'
+          print('✓ Safe executor classify destructive commands test passed')
+
+          # Test _classify: other mutating or unknown commands require approval
           assert executor._classify('kubectl exec myapp -- bash') == 'requires_approval', 'Expected requires_approval'
-          assert executor._classify('rm -rf /tmp/test') == 'requires_approval', 'Expected requires_approval'
+          assert executor._classify('shutdown -h now') == 'requires_approval', 'Expected requires_approval'
+          assert executor._classify('journalctl -n 5 | sh') == 'requires_approval', 'Expected requires_approval'
           print('✓ Safe executor classify dangerous commands test passed')
 
           # Test _classify: allowed-with-auto-apply commands
@@ -226,6 +232,12 @@ jobs:
           import asyncio
           async def test_run_safe():
               result = await executor.run_safe('kubectl delete pod myapp')
+              assert result.get('permanently_blocked') == True, f'Expected permanently_blocked, got: {result}'
+              assert result.get('requires_approval') == False, 'Destructive commands are not approvable'
+              assert 'approval_payload' not in result, 'Expected no approval_payload'
+              print('✓ Safe executor run_safe permanently blocks destructive commands test passed')
+
+              result = await executor.run_safe('kubectl exec myapp -- bash')
               assert result.get('blocked') == True, f'Expected blocked=True, got: {result}'
               assert result.get('requires_approval') == True, 'Expected requires_approval=True'
               assert 'approval_payload' in result, 'Expected approval_payload in result'
