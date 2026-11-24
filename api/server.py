@@ -44,6 +44,7 @@ from services.alert_dedupe import AlertDeduper
 from services.incident_queue import QUEUE_PENDING, QUEUE_PROCESSING, IncidentQueue
 from services import metrics
 from services.incident_store import IncidentStore
+from tools.documentation_generator import render_incident_docs
 from services.org_docs import OrgDocs
 from services.escalation import EscalationService, parse_queue_timestamp
 from services.org_config import OrgConfig
@@ -92,6 +93,19 @@ async def process_incident(entry: dict):
         await _process_incident_with_org_creds(entry, incident_id, org_id, context, started_at)
 
 
+def _save_incident_docs(org_id: str, incident_id: str, context: dict, result: dict) -> None:
+    """Write postmortem/runbook/KB markdown next to the incident's logs (AUTO_DOCUMENTATION)."""
+    if os.getenv("AUTO_DOCUMENTATION", "true").lower() != "true":
+        return
+    if (result.get("issue_type") or context.get("type")) == "code_review":
+        return
+    try:
+        for filename, markdown in render_incident_docs(incident_id, context, result).items():
+            incident_store.save_document(org_id, incident_id, filename, markdown)
+    except Exception as exc:  # documentation must never fail the incident
+        log.warning("incident_docs_failed", id=incident_id, error=str(exc))
+
+
 async def _process_incident_with_org_creds(
     entry: dict, incident_id: str, org_id: str, context: dict, started_at
 ):
@@ -135,6 +149,7 @@ async def _process_incident_with_org_creds(
         })
         incident_store.save_audit(org_id, incident_id, audit_entry)
         incident_queue.mark_completed(org_id, incident_id, result)
+        _save_incident_docs(org_id, incident_id, context, result)
 
         await notifier.send_resolution(incident_id, result)
         log.info(

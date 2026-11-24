@@ -122,10 +122,10 @@ data = await collector.collect("aci", "api-container-group", resource_group="pro
 
 | OS | Versions | Collector | Features |
 |----|----------|-----------|----------|
-| Linux (Ubuntu/Debian) | All | `collectors/server_enhanced.py` | Full diagnostics, systemd, apt |
-| RHEL/CentOS | 7, 8, 9 | `collectors/server_enhanced.py` | Full diagnostics, systemd, yum/dnf, SELinux |
-| Amazon Linux | 1, 2, 2023 | `collectors/server_enhanced.py` | Full diagnostics, systemd |
-| Windows Server | 2016, 2019, 2022 | `collectors/server_enhanced.py` | PowerShell diagnostics, Event Logs |
+| Linux (Ubuntu/Debian) | All | `collectors/server.py` | Full diagnostics, systemd, apt |
+| RHEL/CentOS | 7, 8, 9 | `collectors/server.py` | Full diagnostics, systemd, yum/dnf, SELinux |
+| Amazon Linux | 1, 2, 2023 | `collectors/server.py` | Full diagnostics, systemd |
+| Windows Server | 2016, 2019, 2022 | `collectors/server.py` | PowerShell diagnostics, Event Logs |
 
 ### Linux (Ubuntu/Debian) Support
 

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import structlog
 
 from services.incident_queue import QUEUE_COMPLETED, QUEUE_FAILED, QUEUE_REVIEWS
-from services.pii_scrubber import scrub_dict, scrub_value
+from services.pii_scrubber import scrub_dict, scrub_text, scrub_value
 from storage.base import StorageProvider
 from storage.factory import get_storage
 
@@ -33,6 +33,12 @@ class IncidentStore:
         scrubbed = scrub_value(data)
         key = self.storage.log_key(org_id, incident_id, log_name)
         self.storage.put_json(key, scrubbed)
+        return key
+
+    def save_document(self, org_id: str, incident_id: str, filename: str, markdown: str) -> str:
+        """Store a rendered markdown document (postmortem, runbook) with the incident's logs."""
+        key = self.storage.log_key(org_id, incident_id, filename)
+        self.storage.put_bytes(key, scrub_text(markdown).encode("utf-8"), "text/markdown; charset=utf-8")
         return key
 
     def save_conversation(self, org_id: str, incident_id: str, messages: list) -> str:

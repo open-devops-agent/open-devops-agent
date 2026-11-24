@@ -79,7 +79,7 @@ All dangerous operations are:
 
 **New Security Files**:
 - `tools/email_notifier.py` - Email alert system (400+ lines)
-- `tools/safe_executor_enhanced.py` - Enhanced safety (350+ lines)
+- `tools/executor.py` - Enhanced safety (350+ lines)
 - `collectors/security_scanner.py` - Vulnerability scanner (344 lines)
 
 **Security Features**:

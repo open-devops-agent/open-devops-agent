@@ -54,7 +54,7 @@ The agent supports all major cloud providers:
 - Debian
 - CentOS
 - Amazon Linux
-- Collector: `collectors/server_enhanced.py`
+- Collector: `collectors/server.py`
 
 **Red Hat Enterprise Linux (RHEL)**
 - RHEL 7, 8, 9
@@ -62,14 +62,14 @@ The agent supports all major cloud providers:
 - Rocky Linux
 - AlmaLinux
 - Special handling for: SELinux, firewalld, yum/dnf
-- Collector: `collectors/server_enhanced.py`
+- Collector: `collectors/server.py`
 
 **Windows Server**
 - Windows Server 2016, 2019, 2022
 - PowerShell-based diagnostics
 - Event Log monitoring
 - Service management
-- Collector: `collectors/server_enhanced.py`
+- Collector: `collectors/server.py`
 
 ### CI/CD Platforms
 
@@ -575,7 +575,7 @@ Step-by-step guide to fix the issue:
 - Verification steps
 - Rollback plan
 
-**Location:** `documentation/runbooks/`
+**Location:** `logs/<year>/<month>/<incident_id>/runbook.md` in incident storage
 
 **Example:**
 ```markdown
@@ -611,7 +611,7 @@ Detailed incident report:
 - Action items
 - Lessons learned
 
-**Location:** `documentation/postmortems/`
+**Location:** `logs/<year>/<month>/<incident_id>/postmortem.md` in incident storage
 
 #### 3. Knowledge Base Article
 
@@ -622,7 +622,7 @@ Searchable KB entry:
 - Related issues
 - Tags for search
 
-**Location:** `documentation/knowledge-base/`
+**Location:** `logs/<year>/<month>/<incident_id>/kb.md` in incident storage
 
 ### Using the Documentation Generator
 
@@ -646,46 +646,22 @@ kubectl rollout restart deployment/api-service -n production
 **Manual trigger:**
 
 ```python
-from tools.documentation_generator import DocumentationGenerator
+# Automatic: with AUTO_DOCUMENTATION=true (default) every completed incident gets
+# postmortem.md, runbook.md and kb.md under logs/<year>/<month>/<incident_id>/
+# in your storage backend (PII-scrubbed, same retention as the incident's logs).
+from tools.documentation_generator import render_incident_docs
 
-generator = DocumentationGenerator()
-
-files = generator.generate_fix_documentation(
-    incident_id="INC-2026-001",
-    incident_type="k8s",
-    problem_description="Pod stuck in CrashLoopBackOff",
-    root_cause="Missing environment variable",
-    fix_applied="Added ENV var and restarted pod",
-    verification_steps=[
-        "Check pod status",
-        "Verify logs",
-        "Test endpoint"
-    ],
-    manual_commands=[
-        "kubectl get pods",
-        "kubectl edit deployment",
-        "kubectl rollout restart"
-    ],
-    context={"severity": "High"},
-    success=True
-)
-
-print("Documentation generated:")
-for doc_type, path in files.items():
-    print(f"  {doc_type}: {path}")
+docs = render_incident_docs(incident_id, context, result)
+# {"postmortem.md": "...", "runbook.md": "...", "kb.md": "..."}
 ```
 
 ### Searching Documentation
 
 ```bash
-# Search by tag
-grep -r "oom" documentation/knowledge-base/
-
-# Search by incident type
-ls documentation/runbooks/k8s_*
-
-# Search metadata
-cat documentation/metadata_*.json | jq '.tags'
+# Documents live next to each incident's logs: <org>/logs/<year>/<month>/<incident_id>/
+# (STORAGE_PROVIDER=s3 shown; the default memory backend does not survive restarts)
+aws s3 ls "s3://$STORAGE_BUCKET/<org>/logs/" --recursive | grep postmortem.md
+aws s3 cp "s3://$STORAGE_BUCKET/<org>/logs/2026/11/<incident_id>/runbook.md" -
 ```
 
 ---
@@ -883,17 +859,17 @@ kubectl exec deployment/devops-ai-agent -- curl https://api.company.com
 
 **Issue: Documentation not generated**
 ```bash
-# Check output directory exists
-ls -la /app/documentation/
+# Is it enabled? (default true; code-review runs are never documented)
+kubectl exec deployment/devops-ai-agent -- printenv AUTO_DOCUMENTATION
 
-# Check permissions
-kubectl exec deployment/devops-ai-agent -- ls -la /app/documentation/
+# Did saving fail? (storage errors are logged, never fatal)
+kubectl logs deployment/devops-ai-agent | grep incident_docs_failed
 ```
 
 ### Getting Help
 
 1. Check logs: `kubectl logs -f deployment/devops-ai-agent`
-2. Review documentation: `./documentation/`
+2. Review incident documents: `<org>/logs/<year>/<month>/<incident_id>/postmortem.md` in storage
 3. Check health endpoint: `curl https://agent.company.com/health`
 4. Review audit logs: `tail -f logs/audit.log`
 

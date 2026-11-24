@@ -43,7 +43,7 @@ All requested features have been implemented, tested, and documented.
 ### 2. Multi-OS Support
 
 **File:**
-- `collectors/server_enhanced.py` (NEW - 342 lines)
+- `collectors/server.py` (detects the target host's OS over SSH)
 
 **Capabilities:**
 - **Linux**: Ubuntu, Debian, CentOS, Amazon Linux
@@ -106,21 +106,21 @@ result = await verifier.verify_fix(
 - `tools/documentation_generator.py` (NEW - 500+ lines)
 
 **Generates:**
-1. **Runbooks** (`documentation/runbooks/`)
+1. **Runbooks** (`runbook.md` with the incident's logs)
    - Problem statement
    - Root cause
    - Fix procedure
    - Verification steps
    - Rollback plan
 
-2. **Postmortems** (`documentation/postmortems/`)
+2. **Postmortems** (`postmortem.md` with the incident's logs)
    - Timeline
    - Impact analysis
    - Root cause analysis
    - Action items
    - Lessons learned
 
-3. **Knowledge Base** (`documentation/knowledge-base/`)
+3. **Knowledge Base** (`kb.md` with the incident's logs)
    - Searchable articles
    - Problem symptoms
    - Quick fixes
@@ -364,39 +364,22 @@ curl https://api.company.com/health
 ### Automatic
 
 ```python
-from tools.documentation_generator import DocumentationGenerator
+# Automatic: with AUTO_DOCUMENTATION=true (default) every completed incident gets
+# postmortem.md, runbook.md and kb.md under logs/<year>/<month>/<incident_id>/
+# in your storage backend (PII-scrubbed, same retention as the incident's logs).
+from tools.documentation_generator import render_incident_docs
 
-generator = DocumentationGenerator()
-files = generator.generate_fix_documentation(
-    incident_id="INC-001",
-    incident_type="k8s",
-    problem_description="Pod CrashLoopBackOff",
-    root_cause="Missing environment variable",
-    fix_applied="Added ENV var to deployment",
-    verification_steps=["Check pod status", "Verify logs"],
-    manual_commands=["kubectl edit deployment"],
-    context={"severity": "High"},
-    success=True
-)
-
-# Generates:
-# - Runbook
-# - Postmortem
-# - Knowledge Base article
-# - Metadata (JSON)
+docs = render_incident_docs(incident_id, context, result)
+# {"postmortem.md": "...", "runbook.md": "...", "kb.md": "..."}
 ```
 
 ### Output
 
 ```
-documentation/
-  runbooks/
-    k8s_INC-001_20260612.md
-  postmortems/
-    INC-001_20260612.md
-  knowledge-base/
-    k8s_20260612.md
-  metadata_INC-001.json
+<org>/logs/2026/11/INC-001/
+  postmortem.md
+  runbook.md
+  kb.md
 ```
 
 ---

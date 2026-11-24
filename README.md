@@ -189,17 +189,17 @@ The agent handles routine tasks so your team focuses on complex problems:
 **Linux (All Distributions)**
 - Ubuntu, Debian, CentOS, Amazon Linux
 - Full diagnostics: CPU, memory, disk, network, services
-- Collector: `collectors/server_enhanced.py`
+- Collector: `collectors/server.py`
 
 **Red Hat Enterprise Linux (RHEL)**
 - RHEL 7, 8, 9 + CentOS, Rocky Linux, AlmaLinux
 - Special support: SELinux, firewalld, yum/dnf
-- Collector: `collectors/server_enhanced.py`
+- Collector: `collectors/server.py`
 
 **Windows Server**
 - Windows Server 2016, 2019, 2022
 - PowerShell diagnostics, Event Logs, Service management
-- Collector: `collectors/server_enhanced.py`
+- Collector: `collectors/server.py`
 
 ### CI/CD Platforms
 
@@ -400,46 +400,19 @@ curl https://api.company.com/health
 
 ### Automatic Documentation
 
-**Every fix is automatically documented:**
+**Every completed incident is documented** from what the agent actually did
+(`AUTO_DOCUMENTATION=true`, the default). Three markdown files are stored with the
+incident's logs at `logs/<year>/<month>/<incident_id>/` in your storage backend
+(local, S3, GCS or Azure), PII-scrubbed and kept for `AUDIT_RETENTION_DAYS` like the logs:
 
-After any fix (manual or automatic), the agent generates:
+1. **`postmortem.md`**: severity, source, status, the diagnosis, threat findings, the tools
+   used, the commands that actually executed, fixes, verification result, follow-up items
+2. **`runbook.md`**: symptoms, required access, investigation commands, fix commands,
+   verification checklist and rollback hint, for the next time the alert fires
+3. **`kb.md`**: a short cause-and-fix article with tags
 
-1. **Runbook** (`documentation/runbooks/`)
-   - Problem statement
-   - Root cause
-   - Step-by-step fix procedure
-   - Verification steps
-   - Rollback plan
-
-2. **Postmortem** (`documentation/postmortems/`)
-   - Timeline
-   - Impact analysis
-   - Root cause analysis
-   - Action items
-   - Lessons learned
-
-3. **Knowledge Base Article** (`documentation/knowledge-base/`)
-   - Searchable documentation
-   - Common symptoms
-   - Quick fixes
-   - Prevention tips
-
-**Example:**
-```python
-# Automatic after manual fix
-docs = agent.document_fix(
-    incident_id="INC-2026-001",
-    problem="Pod CrashLoopBackOff",
-    root_cause="Missing environment variable",
-    fix_applied="Added ENV var to deployment",
-    manual_commands=["kubectl edit deployment"]
-)
-
-# Generates:
-# - documentation/runbooks/k8s_INC-2026-001.md
-# - documentation/postmortems/INC-2026-001.md
-# - documentation/knowledge-base/k8s_crashloop.md
-```
+Code-review runs are not documented. The files are never written into your org's knowledge
+docs, because a diagnosis can quote attacker-controlled log text and the agent reads those docs back.
 
 **Tool:** `tools/documentation_generator.py`
 
