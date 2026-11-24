@@ -9,6 +9,7 @@ import os
 from typing import Optional
 
 import structlog
+from services.org_env import subprocess_env
 
 from services.approval_store import APPROVAL_REFERENCE_PREFIX, CommandApprovalStore
 from tools.safety import (
@@ -173,12 +174,14 @@ class SafeExecutor:
                     *run_argv,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=subprocess_env(),
                 )
             else:
                 proc = await asyncio.create_subprocess_shell(
                     command,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=subprocess_env(),
                 )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
             return {

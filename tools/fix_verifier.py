@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 import httpx
 import structlog
+from services.org_env import subprocess_env
 
 log = structlog.get_logger()
 
@@ -251,6 +252,7 @@ class FixVerifier:
                         "jsonpath={.status.phase}",
                     ],
                     capture_output=True,
+                    env=subprocess_env(),
                     text=True,
                     timeout=10,
                     check=False,

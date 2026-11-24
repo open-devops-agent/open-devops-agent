@@ -66,7 +66,7 @@ def _make_agent_tool_handler(
     async def handler(**kwargs: Any) -> dict:
         org_id = resolve_org(kwargs.pop("org_id", None))
         context = {"org_id": org_id}
-        with org_agent_credentials(org_id, agent):
+        async with org_agent_credentials(org_id, agent):
             return await agent.execute_tool(tool_name, kwargs, context)
 
     handler.__name__ = tool_name
@@ -167,7 +167,7 @@ def register_platform_tools(
         payload.setdefault("source", "mcp")
         payload["org_id"] = org
         iid = incident_id or f"mcp-{org}"
-        with org_agent_credentials(org, agent):
+        async with org_agent_credentials(org, agent):
             result = await agent.run(payload, incident_id=iid, resume=False)
         return result
 

@@ -266,6 +266,12 @@ Their Slack · Their GitHub · Their K8s · Their cloud
 | **Each org** | Anthropic, Slack, GitHub, kube, cloud keys; their AI agent |
 | **Platform operator** | Shared storage/queue only (`STORAGE_*`, `QUEUE_*`) — not org secrets |
 
+**Isolation between orgs.** One process can serve many orgs at once. An org's keys are never written
+into the process environment: each request sees them through a context-local view of `os.environ`,
+and child processes (kubectl, helm, terraform) get them explicitly. Work for the same org runs in
+parallel; work for a different org waits for it to finish before the agent's cached clients
+(GitHub, cloud SDKs, the LLM client) are rebuilt with that org's keys.
+
 ### Start the MCP server
 
 ```bash
