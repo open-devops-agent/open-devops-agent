@@ -32,15 +32,15 @@ class TestSafeExecutor:
         assert self.executor._classify("kubectl scale deployment/api --replicas=3") == "requires_approval"
         assert self.executor._classify("systemctl restart nginx") == "allowed"
 
-    def test_classifies_delete_as_requires_approval(self):
-        assert self.executor._classify("kubectl delete pod my-pod") == "requires_approval"
-        assert self.executor._classify("rm -rf /var/log/app") == "requires_approval"
+    def test_classifies_delete_as_permanently_blocked(self):
+        assert self.executor._classify("kubectl delete pod my-pod") == "blocked"
+        assert self.executor._classify("rm -rf /var/log/app") == "blocked"
         assert self.executor._classify("kubectl exec -it my-pod -- bash") == "requires_approval"
 
     def test_blocks_dangerous_commands(self):
-        assert self.executor._classify("dd if=/dev/zero of=/dev/sda") == "requires_approval"
+        assert self.executor._classify("dd if=/dev/zero of=/dev/sda") == "blocked"
         assert self.executor._classify("shutdown -r now") == "requires_approval"
-        assert self.executor._classify("mkfs.ext4 /dev/sdb") == "requires_approval"
+        assert self.executor._classify("mkfs.ext4 /dev/sdb") == "blocked"
 
     @pytest.mark.asyncio
     async def test_blocks_unapproved_restart_when_auto_apply_false(self):
