@@ -17,7 +17,7 @@ Quick reference for all agent capabilities.
 - `collectors/aws.py` - AWS monitoring
 - `collectors/gcp.py` - GCP monitoring
 - `collectors/azure.py` - Azure monitoring
-- `collectors/server_enhanced.py` - Multi-OS server monitoring
+- `collectors/server.py` - Multi-OS server monitoring
 - `collectors/k8s.py` - Kubernetes monitoring
 - `collectors/github.py`, `gitlab.py`, `jenkins.py`, etc. - CI/CD monitoring
 
@@ -62,32 +62,18 @@ print(result["status"])     # "success", "failed", "unstable"
 **Features:**
 - Automatic after every fix (manual or automatic)
 - Searchable with tags
-- JSON metadata for indexing
+- Stored with the incident's logs, same retention
 - Markdown format
 
 **Usage:**
 ```python
-from tools.documentation_generator import DocumentationGenerator
+# Automatic: with AUTO_DOCUMENTATION=true (default) every completed incident gets
+# postmortem.md, runbook.md and kb.md under logs/<year>/<month>/<incident_id>/
+# in your storage backend (PII-scrubbed, same retention as the incident's logs).
+from tools.documentation_generator import render_incident_docs
 
-generator = DocumentationGenerator()
-files = generator.generate_fix_documentation(
-    incident_id="INC-2026-001",
-    incident_type="k8s",
-    problem_description="Pod CrashLoopBackOff",
-    root_cause="Missing environment variable",
-    fix_applied="Added ENV var to deployment",
-    verification_steps=["Check pod status", "Verify logs"],
-    manual_commands=["kubectl edit deployment"],
-    context={"severity": "High"},
-    success=True
-)
-
-# Output:
-# files = {
-#     "runbook": "documentation/runbooks/k8s_INC-2026-001.md",
-#     "postmortem": "documentation/postmortems/INC-2026-001.md",
-#     "knowledge_base": "documentation/knowledge-base/k8s_20260612.md"
-# }
+docs = render_incident_docs(incident_id, context, result)
+# {"postmortem.md": "...", "runbook.md": "...", "kb.md": "..."}
 ```
 
 **File:** `tools/documentation_generator.py`
@@ -120,7 +106,7 @@ files = generator.generate_fix_documentation(
 - **RHEL**: SELinux status, firewalld, yum updates
 - **Windows**: PowerShell diagnostics, Event Logs, Services
 
-**File:** `collectors/server_enhanced.py`
+**File:** `collectors/server.py`
 
 ---
 
@@ -145,7 +131,7 @@ files = generator.generate_fix_documentation(
 - `kubectl delete namespace`
 - All recursive deletes
 
-**File:** `tools/safe_executor_enhanced.py`
+**File:** `tools/executor.py`
 
 ---
 

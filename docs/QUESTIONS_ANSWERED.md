@@ -56,7 +56,7 @@ data = await collector.collect("vm", "vm-name")
 
 1. **Linux (All Distributions)**
    - Ubuntu, Debian, CentOS, Amazon Linux
-   - File: `collectors/server_enhanced.py` (NEW - 342 lines)
+   - File: `collectors/server.py` (detects the target host's OS over SSH)
    - Features:
      - CPU, memory, disk diagnostics
      - systemd service management
@@ -68,7 +68,7 @@ data = await collector.collect("vm", "vm-name")
 2. **Red Hat Enterprise Linux (RHEL)**
    - RHEL 7, 8, 9
    - CentOS, Rocky Linux, AlmaLinux
-   - File: `collectors/server_enhanced.py` (same file, auto-detects)
+   - File: `collectors/server.py` (same file, auto-detects)
    - Additional Features:
      - SELinux status and denials
      - firewalld configuration
@@ -77,7 +77,7 @@ data = await collector.collect("vm", "vm-name")
 
 3. **Windows Server**
    - Windows Server 2016, 2019, 2022
-   - File: `collectors/server_enhanced.py` (same file, auto-detects)
+   - File: `collectors/server.py` (same file, auto-detects)
    - Features:
      - PowerShell-based diagnostics
      - Event Log monitoring (System, Application)
@@ -92,9 +92,9 @@ data = await collector.collect("vm", "vm-name")
 The agent automatically detects which OS it's running on:
 
 ```python
-from collectors.server_enhanced import EnhancedServerCollector
+from collectors.server import ServerCollector
 
-collector = EnhancedServerCollector()
+collector = ServerCollector()
 # Automatically detects: Linux, Windows, or RHEL
 # Runs appropriate commands for that OS
 
@@ -153,7 +153,7 @@ netstat -ano | findstr LISTENING
 ipconfig /all
 ```
 
-**See:** `collectors/server_enhanced.py` for implementation
+**See:** `collectors/server.py` for implementation
 
 ---
 
@@ -449,7 +449,7 @@ kubectl exec -it pod-name -- /health-check.sh
 
 After EVERY fix (manual or automatic), the agent generates:
 
-#### 1. Runbook (`documentation/runbooks/`)
+#### 1. Runbook (`runbook.md` with the incident's logs)
 - Problem statement
 - Root cause
 - Prerequisites (permissions, access)
@@ -485,7 +485,7 @@ kubectl edit deployment api-service -n production
 kubectl rollout undo deployment/api-service -n production
 ```
 
-#### 2. Postmortem (`documentation/postmortems/`)
+#### 2. Postmortem (`postmortem.md` with the incident's logs)
 - Timeline of events
 - Impact assessment
 - Root cause analysis
@@ -519,7 +519,7 @@ Missing environment variable DB_HOST in deployment configuration
 - [ ] Document in runbook
 ```
 
-#### 3. Knowledge Base Article (`documentation/knowledge-base/`)
+#### 3. Knowledge Base Article (`kb.md` with the incident's logs)
 - Searchable documentation
 - Problem symptoms
 - Quick fix
@@ -553,11 +553,6 @@ kubectl edit deployment api-service
 k8s, crashloop, config, environment-variables
 ```
 
-#### 4. Metadata (`documentation/metadata_*.json`)
-- Searchable JSON metadata
-- Tags for indexing
-- Links to all generated docs
-
 ### Usage:
 
 **Automatic (default):**
@@ -568,62 +563,29 @@ k8s, crashloop, config, environment-variables
 
 **Manual trigger:**
 ```python
-from tools.documentation_generator import DocumentationGenerator
+# Automatic: with AUTO_DOCUMENTATION=true (default) every completed incident gets
+# postmortem.md, runbook.md and kb.md under logs/<year>/<month>/<incident_id>/
+# in your storage backend (PII-scrubbed, same retention as the incident's logs).
+from tools.documentation_generator import render_incident_docs
 
-generator = DocumentationGenerator()
-
-files = generator.generate_fix_documentation(
-    incident_id="INC-2026-001",
-    incident_type="k8s",
-    problem_description="Pod stuck in CrashLoopBackOff",
-    root_cause="Missing environment variable",
-    fix_applied="Added DB_HOST environment variable to deployment",
-    verification_steps=[
-        "Check pod status is Running",
-        "Verify application logs show no errors",
-        "Test application endpoint responds correctly"
-    ],
-    manual_commands=[
-        "kubectl get pods -n production",
-        "kubectl edit deployment api-service -n production",
-        "kubectl rollout restart deployment/api-service"
-    ],
-    context={
-        "alert_source": "Prometheus",
-        "severity": "High",
-        "affected_services": "API Service"
-    },
-    success=True
-)
-
-print("Documentation generated:")
-for doc_type, path in files.items():
-    print(f"  {doc_type}: {path}")
+docs = render_incident_docs(incident_id, context, result)
+# {"postmortem.md": "...", "runbook.md": "...", "kb.md": "..."}
 ```
 
 ### Output:
 ```
-Documentation generated:
-  runbook: documentation/runbooks/k8s_INC-2026-001_20260612.md
-  postmortem: documentation/postmortems/INC-2026-001_20260612.md
-  knowledge_base: documentation/knowledge-base/k8s_20260612.md
-  metadata: documentation/metadata_INC-2026-001.json
+<org>/logs/2026/11/<incident_id>/postmortem.md
+<org>/logs/2026/11/<incident_id>/runbook.md
+<org>/logs/2026/11/<incident_id>/kb.md
 ```
 
 ### Searching Documentation:
 
 ```bash
-# Search by tag
-grep -r "crashloop" documentation/knowledge-base/
-
-# Search by incident type
-ls documentation/runbooks/k8s_*
-
-# Search by date
-ls documentation/postmortems/*20260612*
-
-# Search metadata
-cat documentation/metadata_*.json | jq '.tags'
+# Documents live next to each incident's logs: <org>/logs/<year>/<month>/<incident_id>/
+# (STORAGE_PROVIDER=s3 shown; the default memory backend does not survive restarts)
+aws s3 ls "s3://$STORAGE_BUCKET/<org>/logs/" --recursive | grep postmortem.md
+aws s3 cp "s3://$STORAGE_BUCKET/<org>/logs/2026/11/<incident_id>/runbook.md" -
 ```
 
 **See:** `tools/documentation_generator.py` for implementation
@@ -748,7 +710,7 @@ az vm list
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `collectors/server_enhanced.py` | Multi-OS server monitoring | 342 |
+| `collectors/server.py` | Multi-OS server monitoring | 342 |
 | `tools/fix_verifier.py` | Automatic fix verification | 400+ |
 | `tools/documentation_generator.py` | Automatic documentation | 500+ |
 | `ORGANIZATIONAL_GUIDE.md` | How to use in organization | 544 |
@@ -782,13 +744,13 @@ az vm list
 2. **Test New Features:**
    ```bash
    # Test server collector
-   python collectors/server_enhanced.py
+   pytest tests/test_server_collector_os.py
    
    # Test fix verifier
    python tools/fix_verifier.py
    
    # Test documentation generator
-   python tools/documentation_generator.py
+   pytest tests/test_incident_docs.py
    ```
 
 3. **Deploy to Your Organization:**

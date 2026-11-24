@@ -436,13 +436,13 @@ TLS_ENABLED=true
 
 ```bash
 # Test multi-OS support
-python collectors/server_enhanced.py
+pytest tests/test_server_collector_os.py
 
 # Test fix verification
 python tools/fix_verifier.py
 
 # Test documentation generator
-python tools/documentation_generator.py
+pytest tests/test_incident_docs.py
 
 # Run all tests
 pytest tests/ -v

@@ -28,7 +28,7 @@ This document answers your questions and shows you where to find everything.
 - **RHEL** (RHEL 7/8/9, CentOS, Rocky, AlmaLinux) - with SELinux, firewalld
 - **Windows** (Server 2016/2019/2022) - with PowerShell, Event Logs
 
-**File:** `collectors/server_enhanced.py` (NEW - 342 lines)
+**File:** `collectors/server.py` (detects the target host's OS over SSH)
 **Feature:** Auto-detects OS and runs appropriate diagnostics
 
 ### 3. How can it be used in an organization?
@@ -79,28 +79,20 @@ result = await verifier.verify_fix(
 2. **Postmortem** - Detailed incident report
 3. **Knowledge Base** - Searchable documentation
 
-**Location:** `documentation/` folder
-- `runbooks/` - Fix procedures
-- `postmortems/` - Incident reports
-- `knowledge-base/` - Searchable articles
+**Location:** `logs/<year>/<month>/<incident_id>/` in incident storage
+- `postmortem.md` - Incident report
+- `runbook.md` - Fix procedure
+- `kb.md` - Knowledge-base article
 
 **Usage:**
 ```python
-from tools.documentation_generator import DocumentationGenerator
+# Automatic: with AUTO_DOCUMENTATION=true (default) every completed incident gets
+# postmortem.md, runbook.md and kb.md under logs/<year>/<month>/<incident_id>/
+# in your storage backend (PII-scrubbed, same retention as the incident's logs).
+from tools.documentation_generator import render_incident_docs
 
-generator = DocumentationGenerator()
-files = generator.generate_fix_documentation(
-    incident_id="INC-001",
-    incident_type="k8s",
-    problem_description="Pod CrashLoopBackOff",
-    root_cause="Missing environment variable",
-    fix_applied="Added ENV var",
-    verification_steps=["Check pod status"],
-    manual_commands=["kubectl edit deployment"],
-    context={"severity": "High"},
-    success=True
-)
-# Generates runbook, postmortem, and KB article
+docs = render_incident_docs(incident_id, context, result)
+# {"postmortem.md": "...", "runbook.md": "...", "kb.md": "..."}
 ```
 
 ### 6. Should integrate with all DevOps tools
@@ -123,7 +115,7 @@ files = generator.generate_fix_documentation(
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `collectors/server_enhanced.py` | Multi-OS server monitoring | 342 |
+| `collectors/server.py` | Multi-OS server monitoring | 342 |
 | `tools/fix_verifier.py` | Automatic fix verification | 400+ |
 | `tools/documentation_generator.py` | Auto documentation | 500+ |
 
@@ -250,7 +242,7 @@ files = generator.generate_fix_documentation(
 
 **Test Multi-OS Support:**
 ```bash
-python collectors/server_enhanced.py
+pytest tests/test_server_collector_os.py
 # Auto-detects your OS and runs diagnostics
 ```
 
@@ -262,7 +254,7 @@ python tools/fix_verifier.py
 
 **Test Documentation Generator:**
 ```bash
-python tools/documentation_generator.py
+pytest tests/test_incident_docs.py
 # Generates sample documentation
 ```
 
