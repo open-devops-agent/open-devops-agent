@@ -16,6 +16,9 @@ from fastapi.testclient import TestClient
 
 ADMIN_TOKEN = "test-admin-token"
 AUTH = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+# Webhook tests run with a secret configured by default, so every request below
+# must authenticate; the no-secret path has its own explicit test.
+WEBHOOK_SECRET = "test-secret"
 
 
 @pytest.fixture()
@@ -23,6 +26,7 @@ def client(monkeypatch):
     monkeypatch.setenv("API_ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.delenv("API_ORG_TOKENS", raising=False)
     monkeypatch.delenv("API_AUTH_DISABLED", raising=False)
+    monkeypatch.setenv("WEBHOOK_SECRET", WEBHOOK_SECRET)
     with (
         patch("agent.core.DevOpsAgent"),
         patch("tools.notify.SlackNotifier"),
@@ -36,9 +40,20 @@ def client(monkeypatch):
             yield c
 
 
-def _github_sig(payload: bytes, secret: str = "test-secret") -> str:
+def _github_sig(payload: bytes, secret: str = WEBHOOK_SECRET) -> str:
     mac = hmac.new(secret.encode(), payload, hashlib.sha256)
     return f"sha256={mac.hexdigest()}"
+
+
+def _post_signed(client, path: str, payload: dict, headers: dict | None = None):
+    """POST a JSON body with an HMAC-SHA256 signature over the exact bytes sent."""
+    body = json.dumps(payload).encode()
+    signed = {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": _github_sig(body),
+        **(headers or {}),
+    }
+    return client.post(path, content=body, headers=signed)
 
 
 # ─── /health ─────────────────────────────────────────────────────────────────
@@ -60,8 +75,7 @@ def test_audit_returns_200(client):
 
 # ─── /webhook/github ─────────────────────────────────────────────────────────
 
-def test_github_webhook_invalid_signature_returns_401(client, monkeypatch):
-    monkeypatch.setenv("WEBHOOK_SECRET", "test-secret")
+def test_github_webhook_invalid_signature_returns_401(client):
     payload = json.dumps({"action": "opened"}).encode()
     resp = client.post(
         "/webhook/github",
@@ -75,23 +89,27 @@ def test_github_webhook_invalid_signature_returns_401(client, monkeypatch):
     assert resp.status_code == 401
 
 
-def test_github_webhook_valid_signature_returns_200(client, monkeypatch):
-    monkeypatch.setenv("WEBHOOK_SECRET", "test-secret")
-    payload = json.dumps({"action": "opened", "repository": {"full_name": "org/repo"}}).encode()
-    sig = _github_sig(payload, "test-secret")
-    resp = client.post(
+def test_github_webhook_valid_signature_returns_200(client):
+    resp = _post_signed(
+        client,
         "/webhook/github",
-        content=payload,
-        headers={
-            "Content-Type": "application/json",
-            "X-Hub-Signature-256": sig,
-            "X-GitHub-Event": "push",
-        },
+        {"action": "opened", "repository": {"full_name": "org/repo"}},
+        headers={"X-GitHub-Event": "push"},
     )
     assert resp.status_code == 200
 
 
+def test_github_webhook_missing_signature_returns_401(client):
+    resp = client.post(
+        "/webhook/github",
+        json={"action": "opened"},
+        headers={"X-GitHub-Event": "push"},
+    )
+    assert resp.status_code == 401
+
+
 def test_github_webhook_no_secret_accepts_all(client, monkeypatch):
+    """Current fail-open behavior when no secret is configured (#64)."""
     monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
     payload = json.dumps({"action": "opened"}).encode()
     resp = client.post(
@@ -104,31 +122,56 @@ def test_github_webhook_no_secret_accepts_all(client, monkeypatch):
 
 # ─── /webhook/alertmanager ───────────────────────────────────────────────────
 
+ALERTMANAGER_PAYLOAD = {
+    "alerts": [
+        {
+            "status": "firing",
+            "labels": {"alertname": "PodCrashLoopBackOff", "namespace": "default"},
+            "annotations": {"summary": "Pod is crash looping"},
+        }
+    ]
+}
+
+
 def test_alertmanager_webhook_valid_payload(client):
-    payload = {
-        "alerts": [
-            {
-                "status": "firing",
-                "labels": {"alertname": "PodCrashLoopBackOff", "namespace": "default"},
-                "annotations": {"summary": "Pod is crash looping"},
-            }
-        ]
-    }
-    resp = client.post("/webhook/alertmanager", json=payload)
+    resp = _post_signed(client, "/webhook/alertmanager", ALERTMANAGER_PAYLOAD)
     assert resp.status_code == 200
 
 
+def test_alertmanager_webhook_bearer_token(client):
+    """Alertmanager cannot sign bodies; it sends the secret as a bearer token."""
+    resp = client.post(
+        "/webhook/alertmanager",
+        json=ALERTMANAGER_PAYLOAD,
+        headers={"Authorization": f"Bearer {WEBHOOK_SECRET}"},
+    )
+    assert resp.status_code == 200
+
+
+def test_alertmanager_webhook_wrong_bearer_token_returns_401(client):
+    resp = client.post(
+        "/webhook/alertmanager",
+        json=ALERTMANAGER_PAYLOAD,
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert resp.status_code == 401
+
+
 def test_alertmanager_webhook_empty_alerts(client):
-    resp = client.post("/webhook/alertmanager", json={"alerts": []})
+    resp = _post_signed(client, "/webhook/alertmanager", {"alerts": []})
     assert resp.status_code == 200
 
 
 # ─── /webhook/manual ─────────────────────────────────────────────────────────
 
 def test_manual_trigger_enqueues_incident(client):
-    payload = {"type": "k8s", "namespace": "default"}
-    resp = client.post("/webhook/manual", json=payload)
+    resp = _post_signed(client, "/webhook/manual", {"type": "k8s", "namespace": "default"})
     assert resp.status_code == 200
+
+
+def test_manual_trigger_unsigned_returns_401(client):
+    resp = client.post("/webhook/manual", json={"type": "k8s", "namespace": "default"})
+    assert resp.status_code == 401
 
 
 # ─── /orgs/{org_id}/docs ─────────────────────────────────────────────────────

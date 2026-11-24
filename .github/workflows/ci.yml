@@ -269,6 +269,10 @@ jobs:
   integration-test:
     name: Integration Test - Full Agent Flow
     runs-on: ubuntu-latest
+    env:
+      # Dummy secret for this job only: the server verifies every webhook
+      # request against it, and the test steps sign with it.
+      WEBHOOK_SECRET: ci-webhook-secret
 
     steps:
       - uses: actions/checkout@v7
@@ -307,103 +311,35 @@ jobs:
           curl -f http://localhost:8000/health || exit 1
           echo "✓ Health endpoint test passed"
 
-      - name: Test Manual Webhook - K8s Incident (Dummy)
-        run: |
-          body_file=$(mktemp)
-          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
-            -H "Content-Type: application/json" \
-            -d '{
-              "type": "k8s",
-              "namespace": "test",
-              "pod_name": "dummy-pod",
-              "labels": {"severity": "warning", "test": "true"}
-            }') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
-          body=$(cat "$body_file")
-          if [ "$status" != "200" ] || ! jq -e --arg type k8s \
-            '.status == "queued" and (.incident_id | type == "string" and length > 0) and .context.type == $type and .context.source == "manual"' \
-            <<<"$body" >/dev/null; then
-            echo "::error::Unexpected response: HTTP $status, body: $body"
-            exit 1
-          fi
-          echo "✓ K8s manual webhook queued: $body"
-
-      - name: Test Manual Webhook - CI/CD Incident (Dummy)
-        run: |
-          body_file=$(mktemp)
-          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
-            -H "Content-Type: application/json" \
-            -d '{
-              "type": "cicd",
-              "source": "github_actions",
-              "repo": "test/repo",
-              "run_id": 12345,
-              "labels": {"test": "true"}
-            }') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
-          body=$(cat "$body_file")
-          if [ "$status" != "200" ] || ! jq -e --arg type cicd \
-            '.status == "queued" and (.incident_id | type == "string" and length > 0) and .context.type == $type and .context.source == "manual"' \
-            <<<"$body" >/dev/null; then
-            echo "::error::Unexpected response: HTTP $status, body: $body"
-            exit 1
-          fi
-          echo "✓ CI/CD manual webhook queued: $body"
-
-      - name: Test Manual Webhook - ArgoCD Incident (Dummy)
-        run: |
-          body_file=$(mktemp)
-          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
-            -H "Content-Type: application/json" \
-            -d '{
-              "type": "argocd",
-              "app_name": "test-app",
-              "labels": {"test": "true"}
-            }') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
-          body=$(cat "$body_file")
-          if [ "$status" != "200" ] || ! jq -e --arg type argocd \
-            '.status == "queued" and (.incident_id | type == "string" and length > 0) and .context.type == $type and .context.source == "manual"' \
-            <<<"$body" >/dev/null; then
-            echo "::error::Unexpected response: HTTP $status, body: $body"
-            exit 1
-          fi
-          echo "✓ ArgoCD manual webhook queued: $body"
-
-      - name: Test Manual Webhook - Missing Type Rejected
-        run: |
-          body_file=$(mktemp)
-          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
-            -H "Content-Type: application/json" \
-            -d '{"namespace": "test", "labels": {"test": "true"}}') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
-          body=$(cat "$body_file")
-          if [ "$status" != "400" ] || ! jq -e --arg detail "'type' field required" '.detail == $detail' <<<"$body" >/dev/null; then
-            echo "::error::Unexpected response: HTTP $status, body: $body"
-            exit 1
-          fi
-          echo "✓ Missing type rejected: $body"
-
-      - name: Test Manual Webhook - Invalid JSON Rejected
-        run: |
-          body_file=$(mktemp)
-          status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST http://localhost:8000/webhook/manual \
-            -H "Content-Type: application/json" \
-            -d 'not json') || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
-          body=$(cat "$body_file")
-          if [ "$status" != "400" ] || ! jq -e --arg detail "JSON object required" '.detail == $detail' <<<"$body" >/dev/null; then
-            echo "::error::Unexpected response: HTTP $status, body: $body"
-            exit 1
-          fi
-          echo "✓ Invalid JSON rejected: $body"
-
       - name: Define Webhook Test Helpers
         run: |
           cat > "$RUNNER_TEMP/webhook_helpers.sh" << 'EOF'
-          # post <path> <body> [extra curl args...]: sets $status and $body
-          post() {
+          # send <path> <body> [extra curl args...]: sets $status and $body.
+          # --data-binary sends the body byte-for-byte, so it matches what was signed.
+          send() {
             local path=$1 data=$2 body_file
             shift 2
             body_file=$(mktemp)
             status=$(curl -sS -o "$body_file" -w '%{http_code}' -X POST "http://localhost:8000$path" \
-              -H "Content-Type: application/json" "$@" -d "$data") || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
+              -H "Content-Type: application/json" "$@" --data-binary "$data") || { echo "curl failed (HTTP ${status:-none})"; exit 1; }
             body=$(cat "$body_file")
+          }
+          # sign <body>: hex HMAC-SHA256 of the body with WEBHOOK_SECRET
+          sign() {
+            printf '%s' "$1" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -r | cut -d' ' -f1
+          }
+          # post <path> <body> [extra curl args...]: signed with X-Hub-Signature-256
+          post() {
+            local path=$1 data=$2
+            shift 2
+            send "$path" "$data" -H "X-Hub-Signature-256: sha256=$(sign "$data")" "$@"
+          }
+          # post_bearer <path> <body> [extra curl args...]: Alertmanager and Grafana
+          # cannot sign bodies, so they send WEBHOOK_SECRET as a bearer token
+          post_bearer() {
+            local path=$1 data=$2
+            shift 2
+            send "$path" "$data" -H "Authorization: Bearer $WEBHOOK_SECRET" "$@"
           }
           # expect <label> <http status> <jq filter that must be true>
           expect() {
@@ -415,7 +351,38 @@ jobs:
           }
           QUEUED='.status == "queued" and (.incident_id | type == "string" and length > 0)'
           INVALID_JSON='.detail == "JSON object required"'
+          UNAUTHORIZED='.detail == "Invalid signature"'
           EOF
+
+      - name: Test Webhook Authentication
+        run: |
+          source "$RUNNER_TEMP/webhook_helpers.sh"
+          incident='{"type": "k8s", "namespace": "test", "labels": {"test": "true"}}'
+          send /webhook/manual "$incident"
+          expect "Unsigned request rejected" 401 "$UNAUTHORIZED"
+          send /webhook/manual "$incident" -H "X-Hub-Signature-256: sha256=$(printf '0%.0s' {1..64})"
+          expect "Wrong signature rejected" 401 "$UNAUTHORIZED"
+          send /webhook/manual '{"type": "k8s", "namespace": "tampered"}' -H "X-Hub-Signature-256: sha256=$(sign "$incident")"
+          expect "Signature for a different body rejected" 401 "$UNAUTHORIZED"
+          send /webhook/alertmanager '{"alerts": []}' -H "Authorization: Bearer wrong-token"
+          expect "Wrong bearer token rejected" 401 "$UNAUTHORIZED"
+
+      - name: Test Manual Webhook
+        run: |
+          source "$RUNNER_TEMP/webhook_helpers.sh"
+          manual_queued() {
+            expect "$1" 200 "$QUEUED and .context.type == \"$2\" and .context.source == \"manual\""
+          }
+          post /webhook/manual '{"type": "k8s", "namespace": "test", "pod_name": "dummy-pod", "labels": {"severity": "warning", "test": "true"}}'
+          manual_queued "K8s manual webhook queued" k8s
+          post /webhook/manual '{"type": "cicd", "source": "github_actions", "repo": "test/repo", "run_id": 12345, "labels": {"test": "true"}}'
+          manual_queued "CI/CD manual webhook queued" cicd
+          post /webhook/manual '{"type": "argocd", "app_name": "test-app", "labels": {"test": "true"}}'
+          manual_queued "ArgoCD manual webhook queued" argocd
+          post /webhook/manual '{"namespace": "test", "labels": {"test": "true"}}'
+          expect "Missing type rejected" 400 ".detail == \"'type' field required\""
+          post /webhook/manual 'not json'
+          expect "Invalid JSON rejected" 400 "$INVALID_JSON"
 
       - name: Test GitHub Webhook
         run: |
@@ -464,21 +431,21 @@ jobs:
         run: |
           source "$RUNNER_TEMP/webhook_helpers.sh"
           alert='{"alerts": [{"status": "firing", "labels": {"alertname": "CIPodCrashLooping", "namespace": "test", "pod": "dummy-pod"}, "annotations": {"summary": "CI test alert"}, "startsAt": "2026-01-01T00:00:00Z"}]}'
-          post /webhook/alertmanager "$alert"
+          post_bearer /webhook/alertmanager "$alert"
           expect "Alertmanager firing alert queued" 200 '.status == "queued" and (.incident_ids | length == 1)'
           first_id=$(jq -r '.incident_ids[0]' <<<"$body")
-          post /webhook/alertmanager "$alert"
+          post_bearer /webhook/alertmanager "$alert"
           expect "Alertmanager repeated alert deduplicated" 200 \
             ".status == \"duplicate\" and .incident_ids == [] and .duplicate_of == [\"$first_id\"]"
-          post /webhook/alertmanager 'not json'
+          post_bearer /webhook/alertmanager 'not json'
           expect "Alertmanager invalid JSON rejected" 400 "$INVALID_JSON"
 
       - name: Test Grafana Webhook
         run: |
           source "$RUNNER_TEMP/webhook_helpers.sh"
-          post /webhook/grafana '{"alerts": [{"status": "firing", "labels": {"alertname": "CIHighErrorRate", "service": "api"}, "annotations": {"summary": "CI test alert"}, "startsAt": "2026-01-01T00:00:00Z", "dashboardURL": "http://grafana.local/d/ci", "panelURL": "http://grafana.local/d/ci?viewPanel=1"}]}'
+          post_bearer /webhook/grafana '{"alerts": [{"status": "firing", "labels": {"alertname": "CIHighErrorRate", "service": "api"}, "annotations": {"summary": "CI test alert"}, "startsAt": "2026-01-01T00:00:00Z", "dashboardURL": "http://grafana.local/d/ci", "panelURL": "http://grafana.local/d/ci?viewPanel=1"}]}'
           expect "Grafana firing alert queued" 200 '.status == "queued" and (.incident_ids | length == 1)'
-          post /webhook/grafana 'not json'
+          post_bearer /webhook/grafana 'not json'
           expect "Grafana invalid JSON rejected" 400 "$INVALID_JSON"
 
       - name: Check Audit Endpoint
