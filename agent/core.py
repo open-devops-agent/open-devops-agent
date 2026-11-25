@@ -1388,7 +1388,7 @@ class DevOpsAgent:
                 return
             status = "✅ Approved action executed" if result.get("success") else "❌ Approved action failed"
             await self.notifier.send_message(
-                f"{status} for `{incident_id}`:\n```{command}```\nResult: {result.get('stdout', '')}"
+                f"{status} for `{incident_id}`:\n```{command}```\nResult: {scrub_text(result.get('stdout', ''))}"
             )
 
     async def _collect_context(self, context: dict) -> dict:
