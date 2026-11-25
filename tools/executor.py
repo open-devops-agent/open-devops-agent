@@ -99,6 +99,24 @@ NEVER_ALLOWED: List[Tuple[re.Pattern, str]] = [
     (re.compile(r"\bdocker\s{1,5}(?:volume\s{1,5}(?:rm|prune)|system\s{1,5}prune)\b"), "Docker volume/system prune"),
 ]
 
+# Reading Secret *values* (#191): "kubectl get secret(s) ... -o yaml|json|jsonpath|..."
+# returns base64 data that would flow to the LLM, logs and audit storage. Listing
+# names ("kubectl get secrets", "-o name", "-o wide") and "kubectl describe secret"
+# (sizes only) stay safe.
+_SECRET_RESOURCE = r"(?:[a-z0-9.,/-]*,)?secrets?(?:\.v1)?(?:/[a-z0-9.-]+)?(?:,[a-z0-9.,/-]*)?"
+_VALUE_OUTPUT = (
+    r"(?:(?:-o\s*=?\s*|--output(?:=|\s+))['\"]?(?:ya?ml|json|jsonpath|go-template|template|custom-columns)"
+    r"|--template\b)"
+)
+SECRET_READ = re.compile(
+    rf"\bkubectl\b{_ARG}\sget\s{_ARG}(?<=\s)" + _SECRET_RESOURCE + rf"(?![a-z0-9-])(?=[^|;&\n]*?{_VALUE_OUTPUT})"
+)
+
+
+def reads_secret_values(command: str) -> bool:
+    return bool(SECRET_READ.search(command.lower()))
+
+
 # Shell features that make a command more than one command.
 _SUBSTITUTION_OR_REDIRECT = re.compile(r"`|\$\(|<|>")
 _COMMAND_SEPARATOR = re.compile(r"&&|\|\||;|\n")
@@ -133,6 +151,8 @@ class SafeExecutor:
         if never_allowed_reason(cmd):
             return "blocked"
         if requires_configured_approval(command):
+            return "requires_approval"
+        if reads_secret_values(cmd):
             return "requires_approval"
         if _SUBSTITUTION_OR_REDIRECT.search(cmd):
             return "requires_approval"
