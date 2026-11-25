@@ -41,8 +41,9 @@ startup). For `/audit` the org is `org_id` from the query string, or `ORG_ID` wh
 Tokens are compared in constant time. The MCP server's HTTP transports use their own
 `MCP_AUTH_TOKEN` (see [README → Start the MCP server](../README.md#start-the-mcp-server)).
 
-`X-Org-ID` is **not** authentication — it only selects the organization (see
-[Org scoping](#org-scoping)) and is optional on every webhook.
+`X-Org-ID` on its own is **not** authentication: it selects the organization (see
+[Org scoping](#org-scoping)) and is optional on every webhook. An org that has its own
+webhook secret is the exception: see [Per-org webhook secrets](#per-org-webhook-secrets-multi-tenant).
 
 ### Webhook signatures
 
@@ -68,10 +69,39 @@ curl -X POST http://localhost:8000/webhook/manual \
 - When `WEBHOOK_SECRET` is unset or empty, signature verification is skipped entirely and unsigned
   requests are accepted. Leave it unset only for local testing.
 
+### Per-org webhook secrets (multi-tenant)
+
+With one shared `WEBHOOK_SECRET`, anyone holding it can queue incidents for **any** org by setting
+`X-Org-ID`, and those incidents run with that org's stored credentials. To bind webhooks to a tenant,
+add a `WEBHOOK_SECRET` to the org's credentials. `PUT` replaces the org's whole stored set, so send the
+org's other keys in the same request:
+
+```bash
+curl -X PUT http://localhost:8000/orgs/acme/config \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"credentials": {"WEBHOOK_SECRET": "acme-only-random-string", "GITHUB_TOKEN": "...", "...": "..."}}'
+```
+
+Then:
+
+- Requests for `acme` must send `X-Org-ID: acme` (or, on `/webhook/manual`, `"org_id": "acme"` in the
+  body) and sign, or send a bearer or GitLab token, with **acme's** secret. The platform `WEBHOOK_SECRET`
+  is refused for `acme` with **401**.
+- A request authenticated with acme's secret can only queue work for `acme`. The header takes
+  precedence over `org_id` in the body or in alert labels. Claiming another org with acme's secret fails with **401**.
+- A request signed with the platform secret that would route an alert into `acme`, for example through an
+  `org_id` alert label, is refused with **403**. In an Alertmanager or Grafana batch, every alert is
+  checked before any is queued.
+- Orgs without their own secret keep using the platform secret. Set `REQUIRE_ORG_WEBHOOK_SECRET=true`
+  to refuse the platform secret for every org except the server's own `ORG_ID` (**403**).
+- If org configuration can't be read from storage, webhooks fail closed with **503**.
+
 `/slack/action` uses Slack's own scheme instead (`v0=` HMAC-SHA256 over
 `v0:{timestamp}:{body}` keyed with `SLACK_SIGNING_SECRET`, rejecting timestamps more than
 5 minutes from the server clock), and returns **401** `{"detail": "Invalid Slack signature"}`
-on failure.
+on failure. When the org named in an approval button has its own `SLACK_SIGNING_SECRET` (stored with
+`PUT /orgs/{org_id}/config`, for an org that uses its own Slack app), the callback must be signed with
+that secret and the platform secret is refused.
 
 ---
 
