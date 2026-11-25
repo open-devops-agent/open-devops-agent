@@ -622,6 +622,9 @@ curl -H "Authorization: Bearer $API_TOKEN" "http://localhost:8000/audit?org_id=a
 | `GET` | `/health` | Agent & queue worker status |
 | `GET` | `/audit?org_id=` | Org-scoped incident audit log |
 | `PUT` | `/orgs/{org}/config` | Store org-owned API keys (BYOK) |
+| `PATCH` | `/orgs/{org}/config` | Rotate individual keys ([rotation guide](docs/CREDENTIAL_ROTATION.md)) |
+| `DELETE` | `/orgs/{org}/config` | Revoke all or `?keys=` selected credentials |
+| `GET` | `/orgs/{org}/config/audit` | Credential change history (keys only) |
 | `GET` | `/orgs/{org}/config/status` | Which credentials are configured |
 | `POST` | `/orgs/{org}/docs` | Upload runbooks & policies |
 | `GET` | `/orgs/{org}/docs` | List org documentation |
