@@ -4,7 +4,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
@@ -13,7 +13,7 @@ from agent.core import AGENT_TOOLS, DevOpsAgent
 from devops_mcp.auth import resolve_org
 from services.incident_queue import IncidentQueue
 from services.incident_store import IncidentStore
-from services.org_config import OrgConfig
+from services.org_config import CredentialValidationError, OrgConfig
 from services.org_context import org_agent_credentials
 from services.org_docs import OrgDocs
 
@@ -118,10 +118,26 @@ def register_platform_tools(
         async def configure_org_credentials(
             credentials: dict,
             org_id: str = "",
+            merge: bool = False,
         ) -> dict:
             org = resolve_org(org_id)
-            result = org_config.save(org, credentials)
-            return {"status": "saved", **result}
+            try:
+                if merge:
+                    return {"status": "updated", **org_config.update(org, credentials, actor="mcp")}
+                return {"status": "saved", **org_config.save(org, credentials, actor="mcp")}
+            except CredentialValidationError as exc:
+                return {"status": "invalid", "org_id": org, "errors": exc.errors}
+
+        @mcp.tool(
+            name="revoke_org_credentials",
+            description=(
+                "Revoke this org's stored credentials: all of them, or only the listed keys. "
+                "Use after a leak or when rotating; values are overwritten before deletion."
+            ),
+        )
+        async def revoke_org_credentials(keys: Optional[List[str]] = None, org_id: str = "") -> dict:
+            org = resolve_org(org_id)
+            return {"status": "deleted", **org_config.delete(org, keys or None, actor="mcp")}
 
     @mcp.tool(
         name="get_org_config_status",

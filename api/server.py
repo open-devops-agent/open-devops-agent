@@ -6,6 +6,7 @@ Durable queue + cloud storage for audit, logs, checkpoints, and org docs.
 import asyncio
 import base64
 import binascii
+import hashlib
 import inspect
 import json
 import os
@@ -49,7 +50,7 @@ from services.incident_store import IncidentStore
 from tools.documentation_generator import render_incident_docs
 from services.org_docs import OrgDocs
 from services.escalation import EscalationService, parse_queue_timestamp
-from services.org_config import OrgConfig
+from services.org_config import CredentialValidationError, OrgConfig
 from services.org_context import org_agent_credentials, org_credentials
 from services.pii_scrubber import scrub_dict, scrub_text
 from tools.notify import SlackNotifier
@@ -496,14 +497,59 @@ class OrgConfigBody(BaseModel):
     credentials: dict
 
 
+def _credential_actor(authorization: Optional[str], role: str) -> str:
+    """Who changed credentials, for the audit trail: role plus a token fingerprint (never the token)."""
+    token = bearer_token(authorization)
+    if not token:
+        return f"api:{role}:unauthenticated"
+    return f"api:{role}:{hashlib.sha256(token.encode()).hexdigest()[:12]}"
+
+
+def _save_credentials(op, org_id: str, credentials, authorization: Optional[str]) -> dict:
+    role = require_org_access(org_id, authorization, min_role="admin")
+    try:
+        return op(org_id, credentials, actor=_credential_actor(authorization, role))
+    except CredentialValidationError as exc:
+        raise HTTPException(status_code=422, detail={"errors": exc.errors}) from None
+
+
 @app.put("/orgs/{org_id}/config")
 async def save_org_config(
     org_id: str, body: OrgConfigBody, authorization: Optional[str] = Header(None)
 ):
-    """Store org-owned API keys and integrations (BYOK — not platform operator keys)."""
-    require_org_access(org_id, authorization, min_role="admin")
-    result = org_config.save(org_id, body.credentials)
+    """Replace the org's stored credentials (BYOK — not platform operator keys)."""
+    result = _save_credentials(org_config.save, org_id, body.credentials, authorization)
     return {"status": "saved", **result}
+
+
+@app.patch("/orgs/{org_id}/config")
+async def update_org_config(
+    org_id: str, body: OrgConfigBody, authorization: Optional[str] = Header(None)
+):
+    """Set or rotate individual keys; a null or empty value removes that key. Other keys are kept."""
+    result = _save_credentials(org_config.update, org_id, body.credentials, authorization)
+    return {"status": "updated", **result}
+
+
+@app.delete("/orgs/{org_id}/config")
+async def delete_org_config(
+    org_id: str,
+    keys: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    """Revoke the org's stored credentials: all of them, or only ``?keys=A,B``."""
+    role = require_org_access(org_id, authorization, min_role="admin")
+    selected = [k.strip() for k in (keys or "").split(",") if k.strip()] or None
+    result = org_config.delete(org_id, selected, actor=_credential_actor(authorization, role))
+    return {"status": "deleted", **result}
+
+
+@app.get("/orgs/{org_id}/config/audit")
+async def org_config_audit(org_id: str, limit: int = 50, authorization: Optional[str] = Header(None)):
+    """Credential change history: who, when, which keys (never values)."""
+    require_org_access(org_id, authorization, min_role="admin")
+    events = org_config.audit_events(org_id, limit=max(1, min(limit, 500)))
+    return {"org_id": org_id, "total": len(events), "events": events}
 
 
 @app.get("/orgs/{org_id}/config/status")
