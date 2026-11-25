@@ -57,6 +57,11 @@ MUTATING_AGENT_TOOLS = {
     "update_status_page",
     "create_snapshot",
     "post_code_review",
+    # Containment (#168): always approval-gated; refused under the prompt-injection lock.
+    "isolate_pod",
+    "cordon_node",
+    "disable_access_key",
+    "block_ip",
 }
 
 

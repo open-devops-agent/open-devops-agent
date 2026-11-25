@@ -53,6 +53,7 @@ from services.escalation import EscalationService, parse_queue_timestamp
 from services.org_config import CredentialValidationError, OrgConfig
 from services.org_context import org_agent_credentials, org_credentials
 from services.pii_scrubber import scrub_dict, scrub_text
+from tools.containment import remind_expired_blocks
 from tools.notify import SlackNotifier
 from tools.safety import is_emergency_stop_active
 
@@ -71,6 +72,7 @@ escalation_service = EscalationService()
 
 _queue_worker_task: Optional[asyncio.Task] = None
 _retention_task: Optional[asyncio.Task] = None
+_containment_task: Optional[asyncio.Task] = None
 _background_lock_handle = None
 _queue_running = False
 
@@ -257,6 +259,30 @@ async def _retention_loop():
         await asyncio.sleep(RETENTION_INTERVAL_SEC)
 
 
+async def run_containment_reminders() -> int:
+    """Remind each org's Slack about expired IP blocks (#168), with the reverse command."""
+    sent = 0
+    for org_id in _retention_org_ids():
+        try:
+            with org_credentials(org_id):
+                sent += await remind_expired_blocks(incident_store.storage, SlackNotifier(), org_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.error("Containment reminder failed", org_id=org_id, error=str(e))
+    return sent
+
+
+async def _containment_loop():
+    interval = int(os.getenv("CONTAINMENT_REMINDER_INTERVAL_SEC", "300"))
+    while True:
+        await asyncio.sleep(max(30, interval))
+        try:
+            await run_containment_reminders()
+        except Exception as e:
+            log.error("Containment reminder pass error", error=str(e))
+
+
 async def enqueue_incident(context: dict, incident_id: Optional[str] = None) -> str:
     org = _org_id(context)
     context = dict(context)
@@ -284,7 +310,7 @@ def _warn_missing_webhook_secrets() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _queue_worker_task, _retention_task, _background_lock_handle, _queue_running
+    global _queue_worker_task, _retention_task, _containment_task, _background_lock_handle, _queue_running
     log.info("DevOps AI Agent starting", auto_apply=os.getenv("AUTO_APPLY", "false"))
     if api_auth_disabled():
         log.warning(
@@ -299,10 +325,11 @@ async def lifespan(app: FastAPI):
         else:
             _queue_worker_task = asyncio.create_task(_queue_worker_loop())
             _retention_task = asyncio.create_task(_retention_loop())
+            _containment_task = asyncio.create_task(_containment_loop())
         yield
     finally:
         _queue_running = False
-        for task in (_queue_worker_task, _retention_task):
+        for task in (_queue_worker_task, _retention_task, _containment_task):
             if task:
                 task.cancel()
                 try:
@@ -311,6 +338,7 @@ async def lifespan(app: FastAPI):
                     pass
         _queue_worker_task = None
         _retention_task = None
+        _containment_task = None
         release_background_worker_lock(_background_lock_handle)
         _background_lock_handle = None
         log.info("DevOps AI Agent shutting down")

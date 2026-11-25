@@ -66,6 +66,7 @@ from tools.code_review import CodeReviewTools, detect_platform_from_url
 from collectors.database_policy import check_database_access
 from services.incident_store import IncidentStore
 from services.approval_store import CommandApprovalStore
+from tools.containment import ContainmentTools
 from services.org_docs import OrgDocs
 from services.org_context import org_agent_credentials
 from services.metrics import record_llm_usage, record_threat_findings, record_tool_call, record_verification
@@ -739,6 +740,76 @@ AGENT_TOOLS = [
         },
     },
     {
+        "name": "isolate_pod",
+        "description": (
+            "SECURITY CONTAINMENT (needs human approval, never auto-runs). Saves the pod's YAML, describe, "
+            "logs and events as evidence, then requests approval to label the pod and apply a deny-all "
+            "ingress+egress NetworkPolicy to it. The pod keeps running for forensics; nothing is deleted. "
+            "Use only for a confirmed compromise. dry_run=true shows the exact change without requesting."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string"},
+                "pod": {"type": "string"},
+                "dry_run": {"type": "boolean", "default": False},
+            },
+            "required": ["namespace", "pod"],
+        },
+    },
+    {
+        "name": "cordon_node",
+        "description": (
+            "SECURITY CONTAINMENT (needs human approval). Saves node describe and its pod list as evidence, "
+            "then requests approval to cordon the node (no new pods; nothing is drained or deleted)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"node": {"type": "string"}, "dry_run": {"type": "boolean", "default": False}},
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "disable_access_key",
+        "description": (
+            "SECURITY CONTAINMENT (needs human approval). For a leaked or abused cloud key: saves key usage "
+            "as evidence, then requests approval to set the key inactive (AWS: update-access-key Inactive "
+            "plus a deny policy revoking sessions issued before now; GCP: disable the service account key). "
+            "Reversible; never deletes the key."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string", "enum": ["aws", "gcp"]},
+                "key_id": {"type": "string", "description": "AWS access key ID or GCP key ID"},
+                "principal": {"type": "string", "description": "AWS IAM user name or GCP service account email"},
+                "dry_run": {"type": "boolean", "default": False},
+            },
+            "required": ["provider", "key_id", "principal"],
+        },
+    },
+    {
+        "name": "block_ip",
+        "description": (
+            "SECURITY CONTAINMENT (needs human approval). Requests approval to add an inbound deny rule for "
+            "an attacking IP or small range (at most /24 or /64), with an expiry reminder. aws: resource_id "
+            "is the network ACL ID; gcp: the VPC network; azure: <resource-group>/<nsg-name>. Ranges in "
+            "CONTAINMENT_PROTECTED_CIDRS are refused."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ip": {"type": "string"},
+                "provider": {"type": "string", "enum": ["aws", "gcp", "azure"]},
+                "resource_id": {"type": "string"},
+                "expires_hours": {"type": "number", "default": 24},
+                "rule_number": {"type": "integer", "description": "AWS NACL rule number / Azure priority"},
+                "dry_run": {"type": "boolean", "default": False},
+            },
+            "required": ["ip", "provider", "resource_id"],
+        },
+    },
+    {
         "name": "create_snapshot",
         "description": "Create an RDS or EBS snapshot (additive). Never restores.",
         "input_schema": {
@@ -1059,6 +1130,7 @@ class DevOpsAgent:
         # a failure mid-run can still be escalated correctly.
         self._run_state: dict[str, dict] = {}
         self.incident_store = IncidentStore()
+        self.containment = ContainmentTools(self.executor, self.notifier, self.incident_store)
         self.org_docs = OrgDocs()
         self.claude_retries = int(os.getenv("CLAUDE_API_RETRIES", "3"))
         self.claude_retry_delay = float(os.getenv("CLAUDE_RETRY_DELAY_SEC", "2"))
@@ -1933,6 +2005,33 @@ class DevOpsAgent:
                 return await self.data_state.list_snapshots(
                     inputs["resource_id"], engine=inputs.get("engine") or "rds"
                 )
+            elif name in ("isolate_pod", "cordon_node", "disable_access_key", "block_ip"):
+                incident_id = str(context.get("incident_id") or "manual")
+                dry_run = bool(inputs.get("dry_run", False))
+                # Follow swapped clients (tests, per-org refresh).
+                self.containment.executor = self.executor
+                self.containment.notifier = self.notifier
+                self.containment.incident_store = self.incident_store
+                if name == "isolate_pod":
+                    return await self.containment.isolate_pod(
+                        incident_id, inputs["namespace"], inputs["pod"], dry_run=dry_run
+                    )
+                if name == "cordon_node":
+                    return await self.containment.cordon_node(incident_id, inputs["node"], dry_run=dry_run)
+                if name == "disable_access_key":
+                    return await self.containment.disable_access_key(
+                        incident_id, inputs["provider"], inputs["key_id"], inputs["principal"], dry_run=dry_run
+                    )
+                if name == "block_ip":
+                    return await self.containment.block_ip(
+                        incident_id,
+                        inputs["ip"],
+                        inputs["provider"],
+                        inputs["resource_id"],
+                        expires_hours=inputs.get("expires_hours", 24),
+                        rule_number=inputs.get("rule_number"),
+                        dry_run=dry_run,
+                    )
             elif name == "create_snapshot":
                 return await self.data_state.create_snapshot(
                     inputs["resource_id"],
