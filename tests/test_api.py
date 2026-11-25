@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import json
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -63,6 +64,30 @@ def test_health_returns_200(client):
     assert resp.status_code == 200
     data = resp.json()
     assert "status" in data
+
+
+def test_api_version_matches_project_metadata(client):
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
+
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as source:
+        expected = tomllib.load(source)["project"]["version"]
+    assert client.app.version == expected
+    assert client.get("/openapi.json").json()["info"]["version"] == expected
+    assert client.get("/health").json()["version"] == expected
+
+
+def test_api_version_prefers_installed_distribution(client, monkeypatch):
+    from api import server
+
+    def installed_version(name):
+        assert name == "devops-ai-agent"
+        return "9.8.7"
+
+    monkeypatch.setattr(server, "version", installed_version)
+    assert server._app_version() == "9.8.7"
 
 
 # ─── /audit ──────────────────────────────────────────────────────────────────
