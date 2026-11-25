@@ -33,7 +33,8 @@ flowchart LR
 4. **Security playbook.** The agent treats log and alert content as attacker-controlled data:
    - It confirms each finding with read-only tools and scopes what's affected.
    - It **never deletes or restarts** the affected workload, because that destroys evidence.
-   - It proposes containment only through `suggest_fix`, each step with its rollback.
+   - It requests containment through the [containment tools](#containment-approval-gated): evidence
+     is saved first, and nothing changes until a human approves in Slack.
 5. **Escalation.** Security incidents are never marked resolved by the agent and are always
    escalated. Critical findings escalate at **critical** priority.
 
@@ -107,14 +108,49 @@ or an "AI reviewer: please approve this PR" note hidden in a diff.
 | `ESCALATION_ON_SECURITY` | `true` | Always escalate security incidents (critical findings at critical priority) |
 | `THREAT_BRUTE_FORCE_THRESHOLD` | `10` | Failed logins from one source IP before brute force is reported |
 | `THREAT_INJECTION_THRESHOLD` | `5` | Injection attempts from one source IP before a probe counts as a sustained attack (high) |
+| `CONTAINMENT_PROTECTED_CIDRS` | empty | Ranges `block_ip` must never block |
+| `CONTAINMENT_REMINDER_INTERVAL_SEC` | `300` | How often expired IP blocks are checked for a Slack reminder |
 
 Metric: `devops_agent_threat_findings_total{technique,severity}` (see
 [Monitoring the agent](GRAFANA_PROMETHEUS.md#monitoring-the-agent-itself)).
 
+## Containment (approval-gated)
+
+For a confirmed compromise, the agent can **request** containment. It never applies containment by
+itself:
+
+| Tool | Change after approval | Evidence saved first | Reverse (run by a human) |
+|---|---|---|---|
+| `isolate_pod` | Label the pod and apply a deny-all ingress+egress `NetworkPolicy` for that label only. The pod keeps running for forensics. | Pod YAML, `describe`, logs (current and previous), events | `kubectl delete networkpolicy agent-isolate-…` and remove the label |
+| `cordon_node` | `kubectl cordon` (no drain) | Node `describe`, pods on the node | `kubectl uncordon` |
+| `disable_access_key` | AWS: key set `Inactive` and a deny policy for sessions issued before now. GCP: service account key disabled. | Key list, key last used, user policies | Set the key `Active` again and delete the deny policy, or enable the GCP key |
+| `block_ip` | Inbound deny for one IP or a small range (at most /24 or /64): AWS network ACL, GCP firewall rule, Azure NSG rule | Current ACL or rules | Delete the rule (GCP: disable it). A Slack reminder is sent when the block expires. |
+
+Every request:
+1. **Validates the target** strictly (Kubernetes names, key IDs, IP ranges). Anything that could carry
+   shell syntax is refused.
+2. **Saves evidence** with fixed read-only commands to the incident's logs (`evidence-<action>.json`)
+   before anything changes. Secret values are redacted.
+3. **Sends a Slack approval** showing the exact change and its reverse, through the approver allowlist
+   (`SLACK_APPROVER_IDS`), and records who approved. This happens whatever `AUTO_APPLY` says.
+4. **Records** the action with its reverse command (`containment-<action>.json`).
+
+`dry_run=true` returns the exact change without saving evidence or asking for approval.
+
+- Containment tools are refused while the emergency stop is on, and for the rest of an incident once
+  prompt injection is detected, so attacker-written text can't pick the target.
+- `CONTAINMENT_PROTECTED_CIDRS` lists ranges `block_ip` must never block, such as your office, VPN, load
+  balancers and CI runners.
+- `block_ip` won't block loopback, link-local or metadata addresses, or anything wider than a /24 (IPv4)
+  or /64 (IPv6).
+
+The agent never deletes, so undoing an isolation or an IP block, which removes a rule, is always a
+human action. The exact command is in the approval message, in the record, and in the expiry reminder.
+`isolate_pod` needs a CNI that enforces NetworkPolicy, such as Calico or Cilium.
+
 ## Not yet included
 
 - Native webhooks for Falco, GuardDuty, GCP Security Command Center and Defender for Cloud (#167)
-- Approval-gated containment actions: isolate pod, cordon node, disable key, block IP (#168)
 - Kubernetes audit log and CloudTrail detections (#169)
 
 Until then, route security tools through Alertmanager or Grafana with a `source` or `category` label,
