@@ -32,7 +32,9 @@ from api.webhook_auth import (
     bearer_token,
     get_slack_signing_secret,
     get_webhook_secret,
+    verify_hmac_sha256_signature,
     verify_slack_signature,
+    verify_static_webhook_token,
     verify_webhook_auth,
     verify_webhook_request,
 )
@@ -331,9 +333,71 @@ def _require_webhook_auth(
     body: bytes,
     signature: Optional[str] = None,
     static_token: Optional[str] = None,
-) -> None:
+    claimed_org: Optional[str] = None,
+) -> Optional[str]:
+    """Authenticate a webhook. Returns the org it is bound to, or None for the platform secret.
+
+    An org with its own WEBHOOK_SECRET (PUT /orgs/{org}/config) must sign with it:
+    the platform secret is not accepted for that org (#61).
+    """
+    if claimed_org:
+        org_secret = _org_webhook_secret(claimed_org)
+        if org_secret:
+            if (signature and verify_hmac_sha256_signature(body, signature, org_secret)) or (
+                static_token and verify_static_webhook_token(static_token, org_secret)
+            ):
+                return claimed_org
+            raise HTTPException(status_code=401, detail="Invalid signature")
     if get_webhook_secret() and not verify_webhook_auth(body, signature, static_token):
         raise HTTPException(status_code=401, detail="Invalid signature")
+    return None
+
+
+def _org_secret(org_id: str, key: str) -> str:
+    """An org's own stored secret ("" if none). Fails closed if storage is unavailable."""
+    try:
+        return str(org_config.get(org_id).get(key) or "")
+    except Exception as exc:
+        log.error("org_secret_lookup_failed", org_id=org_id, key=key, error=str(exc))
+        raise HTTPException(status_code=503, detail="Organisation configuration unavailable") from None
+
+
+def _org_webhook_secret(org_id: str) -> str:
+    return _org_secret(org_id, "WEBHOOK_SECRET")
+
+
+def _slack_claimed_org(body: bytes) -> Optional[str]:
+    """Org named in a Slack approval button (unverified; only selects the signing secret)."""
+    try:
+        from urllib.parse import parse_qs
+        payload = json.loads(parse_qs(body.decode()).get("payload", ["{}"])[0])
+        value = json.loads((payload.get("actions") or [{}])[0].get("value") or "{}")
+        org = value.get("org_id") if isinstance(value, dict) else None
+        return org if isinstance(org, str) and org.strip() else None
+    except Exception:
+        return None
+
+
+def _authorize_webhook_org(bound_org: Optional[str], target_org: str) -> None:
+    """Refuse to queue work for an org the request was not authenticated for (#61)."""
+    if bound_org is not None:
+        if target_org != bound_org:
+            raise HTTPException(status_code=403, detail="Request is not authorised for this organisation")
+        return
+    if _org_webhook_secret(target_org):
+        raise HTTPException(
+            status_code=403,
+            detail="This organisation has its own webhook secret: send X-Org-ID and sign with it",
+        )
+    if os.getenv("REQUIRE_ORG_WEBHOOK_SECRET", "false").lower() == "true" and target_org != os.getenv(
+        "ORG_ID", "default"
+    ):
+        raise HTTPException(status_code=403, detail="Organisation has no webhook secret configured")
+
+
+async def _enqueue_webhook_incident(bound_org: Optional[str], context: dict, **kwargs) -> str:
+    _authorize_webhook_org(bound_org, _org_id(context))
+    return await enqueue_incident(context, **kwargs)
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -542,7 +606,7 @@ async def github_webhook(
 ):
     body = await request.body()
 
-    _require_webhook_auth(body, x_hub_signature_256)
+    bound_org = _require_webhook_auth(body, x_hub_signature_256, claimed_org=x_org_id)
 
     payload = _parse_json_body(body)
 
@@ -560,7 +624,7 @@ async def github_webhook(
                 "commit": run.get("head_sha", "")[:8],
                 "html_url": run.get("html_url"),
             }
-            incident_id = await enqueue_incident(context)
+            incident_id = await _enqueue_webhook_incident(bound_org, context)
             return {"status": "queued", "type": "cicd", "incident_id": incident_id}
 
     if x_github_event == "pull_request":
@@ -584,7 +648,7 @@ async def github_webhook(
                 "head_ref": (pr.get("head") or {}).get("ref"),
                 "labels": {"pull_request": "true", "code_review": "true"},
             }
-            incident_id = await enqueue_incident(context)
+            incident_id = await _enqueue_webhook_incident(bound_org, context)
             return {"status": "queued", "type": "code_review", "incident_id": incident_id}
 
     return {"status": "ignored", "event": x_github_event}
@@ -614,9 +678,12 @@ def _alert_context(alert: dict, source: str, x_org_id: Optional[str]) -> dict:
     }
 
 
-async def _enqueue_alert(alert: dict, context: dict, queued: list, duplicates: list) -> None:
+async def _enqueue_alert(
+    alert: dict, context: dict, queued: list, duplicates: list, bound_org: Optional[str] = None
+) -> None:
     """Enqueue one firing alert unless it repeats a recent notification (#124)."""
     org = _org_id(context)
+    _authorize_webhook_org(bound_org, org)
     incident_id = f"INC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:6]}"
     claimed, existing = alert_deduper.claim(org, alert, incident_id)
     if not claimed:
@@ -642,19 +709,25 @@ async def alertmanager_webhook(
 ):
     """Alertmanager alerts. Auth: HMAC signature or `Authorization: Bearer <WEBHOOK_SECRET>`."""
     body = await request.body()
-    _require_webhook_auth(
+    bound_org = _require_webhook_auth(
         body,
         signature=x_hub_signature_256 or x_webhook_signature,
         static_token=bearer_token(authorization),
+        claimed_org=x_org_id,
     )
 
     payload = _parse_json_body(body)
     queued, duplicates = [], []
 
-    for alert in payload.get("alerts", []):
-        if alert.get("status") != "firing":
-            continue
-        await _enqueue_alert(alert, _alert_context(alert, "alertmanager", x_org_id), queued, duplicates)
+    firing = [
+        (alert, _alert_context(alert, "alertmanager", x_org_id))
+        for alert in payload.get("alerts", [])
+        if alert.get("status") == "firing"
+    ]
+    for _alert, context in firing:  # check every alert before queueing any
+        _authorize_webhook_org(bound_org, _org_id(context))
+    for alert, context in firing:
+        await _enqueue_alert(alert, context, queued, duplicates, bound_org)
 
     return _alert_response(queued, duplicates)
 
@@ -673,15 +746,17 @@ async def grafana_webhook(
     Authorization header settings) or an HMAC signature.
     """
     body = await request.body()
-    _require_webhook_auth(
+    bound_org = _require_webhook_auth(
         body,
         signature=x_hub_signature_256 or x_webhook_signature,
         static_token=bearer_token(authorization),
+        claimed_org=x_org_id,
     )
 
     payload = _parse_json_body(body)
     queued, duplicates = [], []
 
+    firing = []
     for alert in payload.get("alerts", []):
         if alert.get("status") != "firing":
             continue
@@ -694,7 +769,10 @@ async def grafana_webhook(
                 "runbook_url": (alert.get("annotations") or {}).get("runbook_url"),
             }
         )
-        await _enqueue_alert(alert, context, queued, duplicates)
+        _authorize_webhook_org(bound_org, _org_id(context))  # check all before queueing any
+        firing.append((alert, context))
+    for alert, context in firing:
+        await _enqueue_alert(alert, context, queued, duplicates, bound_org)
 
     return _alert_response(queued, duplicates)
 
@@ -710,10 +788,11 @@ async def gitlab_webhook(
 ):
     """GitLab pipeline failures and merge-request events for code review."""
     body = await request.body()
-    _require_webhook_auth(
+    bound_org = _require_webhook_auth(
         body,
         signature=x_hub_signature_256 or x_webhook_signature,
         static_token=x_gitlab_token,
+        claimed_org=x_org_id,
     )
     payload = _parse_json_body(body)
     event = (x_gitlab_event or payload.get("object_kind") or "").lower()
@@ -743,7 +822,7 @@ async def gitlab_webhook(
                 "head_sha": (attrs.get("last_commit") or {}).get("id"),
                 "labels": {"merge_request": "true", "code_review": "true"},
             }
-            incident_id = await enqueue_incident(context)
+            incident_id = await _enqueue_webhook_incident(bound_org, context)
             return {"status": "queued", "type": "code_review", "incident_id": incident_id}
 
     if event in ("pipeline hook", "pipeline"):
@@ -758,7 +837,7 @@ async def gitlab_webhook(
                 "pipeline_id": attrs.get("id"),
                 "labels": {"cicd_platform": "gitlab"},
             }
-            incident_id = await enqueue_incident(context)
+            incident_id = await _enqueue_webhook_incident(bound_org, context)
             return {"status": "queued", "type": "cicd", "incident_id": incident_id}
 
     return {"status": "ignored", "event": event}
@@ -775,7 +854,9 @@ async def bitbucket_webhook(
 ):
     """Bitbucket Cloud pull-request events for code review."""
     body = await request.body()
-    _require_webhook_auth(body, x_hub_signature_256 or x_webhook_signature or x_hub_signature)
+    bound_org = _require_webhook_auth(
+        body, x_hub_signature_256 or x_webhook_signature or x_hub_signature, claimed_org=x_org_id
+    )
     payload = _parse_json_body(body)
     event = (x_event_key or "").lower()
     if event in ("pullrequest:created", "pullrequest:updated"):
@@ -806,7 +887,7 @@ async def bitbucket_webhook(
         }
         if not context["change_id"] or not context["repo"]:
             return {"status": "ignored", "reason": "missing_pr_fields"}
-        incident_id = await enqueue_incident(context)
+        incident_id = await _enqueue_webhook_incident(bound_org, context)
         return {"status": "queued", "type": "code_review", "incident_id": incident_id}
 
     return {"status": "ignored", "reason": "unsupported_event", "event": event}
@@ -820,16 +901,19 @@ async def manual_trigger(
     x_webhook_signature: str = Header(None, alias="X-Webhook-Signature"),
 ):
     body = await request.body()
-    _require_webhook_auth(body, x_hub_signature_256 or x_webhook_signature)
-
     context = _parse_json_body(body)
+    claimed = x_org_id or (context.get("org_id") if isinstance(context, dict) else None)
+    bound_org = _require_webhook_auth(
+        body, x_hub_signature_256 or x_webhook_signature, claimed_org=claimed if isinstance(claimed, str) else None
+    )
+
     if "type" not in context:
         raise HTTPException(status_code=400, detail="'type' field required")
 
     context["source"] = "manual"
     if x_org_id:
         context["org_id"] = x_org_id
-    incident_id = await enqueue_incident(context)
+    incident_id = await _enqueue_webhook_incident(bound_org, context)
     return {"status": "queued", "incident_id": incident_id, "context": context}
 
 
@@ -841,7 +925,13 @@ async def slack_action(
     x_slack_request_timestamp: str = Header(None, alias="X-Slack-Request-Timestamp"),
 ):
     body = await request.body()
-    if not verify_slack_signature(body, x_slack_request_timestamp, x_slack_signature):
+    # An org with its own Slack app signs with its own secret; the platform secret
+    # is not accepted for its approvals (#61).
+    claimed_org = _slack_claimed_org(body)
+    org_signing_secret = _org_secret(claimed_org, "SLACK_SIGNING_SECRET") if claimed_org else ""
+    if not verify_slack_signature(
+        body, x_slack_request_timestamp, x_slack_signature, signing_secret=org_signing_secret or None
+    ):
         raise HTTPException(status_code=401, detail="Invalid Slack signature")
 
     from urllib.parse import parse_qs

@@ -36,6 +36,9 @@ ORG_CREDENTIAL_KEYS = [
     "SLACK_APPROVER_IDS",
     "SLACK_BOT_TOKEN",
     "SLACK_SIGNING_SECRET",
+    # Per-org webhook secret (#61): when set, this org's webhooks must be signed
+    # with it and the platform WEBHOOK_SECRET is refused for this org.
+    "WEBHOOK_SECRET",
     "GITHUB_TOKEN",
     "GITHUB_ORG",
     "GITLAB_TOKEN",
