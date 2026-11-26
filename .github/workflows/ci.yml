@@ -470,6 +470,45 @@ jobs:
           curl -f -H "Authorization: Bearer ci-admin-token" http://localhost:8000/audit || exit 1
           echo "✓ Audit endpoint requires a token and works with one"
 
+  lockfile:
+    name: Dependency Lock (hashes + audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install uv and pip-audit
+        run: python -m pip install "uv==0.11.28" "pip-audit==2.10.1"
+
+      - name: Lock files match requirements.txt
+        run: |
+          ./scripts/lock.sh
+          if ! git diff --exit-code -- requirements.lock middleware/requirements.lock; then
+            echo "::error::requirements.lock is out of date. Run scripts/lock.sh and commit the result."
+            exit 1
+          fi
+
+      - name: Install from the lock with hashes enforced
+        run: |
+          python -m venv /tmp/locked
+          /tmp/locked/bin/pip install --require-hashes --no-deps -r requirements.lock
+          /tmp/locked/bin/pip check
+
+      - name: Run tests against the locked versions
+        run: /tmp/locked/bin/python -m pytest -q -p no:cacheprovider
+        env:
+          ANTHROPIC_API_KEY: dummy-key-for-testing
+          AUTO_APPLY: "false"
+
+      - name: Audit locked dependencies for known vulnerabilities
+        run: |
+          pip-audit -r requirements.lock --require-hashes --disable-pip --strict
+          pip-audit -r middleware/requirements.lock --require-hashes --disable-pip --strict
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
