@@ -1,0 +1,49 @@
+name: Refresh dependency locks
+
+# Weekly (and on demand): move the hashed locks to the newest versions the
+# ranges in requirements.txt allow, and open a PR so upgrades are reviewed
+# instead of arriving silently in an image build (#121).
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Upgrade locks
+        run: |
+          python -m pip install "uv==0.11.28"
+          ./scripts/lock.sh --upgrade
+
+      - name: Open or update the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- requirements.lock middleware/requirements.lock; then
+            echo "Locks are already current."
+            exit 0
+          fi
+          branch=deps/lock-refresh
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add requirements.lock middleware/requirements.lock
+          git commit -m "chore(deps): refresh hashed dependency locks"
+          git push --force origin "$branch"
+          if ! gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr create --head "$branch" --base main \
+              --title "chore(deps): refresh hashed dependency locks" \
+              --body "Weekly \`scripts/lock.sh --upgrade\`. Review the version changes; CI runs the suite and pip-audit against the new locks. Close and reopen this PR if checks did not start (PRs opened with GITHUB_TOKEN don't trigger workflows)."
+          fi

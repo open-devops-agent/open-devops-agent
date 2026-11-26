@@ -25,8 +25,11 @@ RUN case "$TARGETARCH" in \
     && chmod +x kubectl \
     && mv kubectl /usr/local/bin/
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Install exactly the locked versions; every download must match its recorded
+# sha256 and nothing outside the lock is pulled in (#121). Regenerate the lock
+# with scripts/lock.sh after changing requirements.txt.
+COPY requirements.lock .
+RUN pip install --no-cache-dir --user --require-hashes --no-deps -r requirements.lock
 
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────

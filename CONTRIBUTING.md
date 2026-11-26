@@ -119,6 +119,22 @@ curl http://localhost:8000/health
 
 ---
 
+### Dependencies (hashed lock files)
+
+`requirements.txt` (and `middleware/requirements.txt`) hold the version **ranges** you edit. The
+Docker images install from `requirements.lock`, which pins every package, including transitive ones,
+to one version and records its sha256 hashes. A package swapped or re-published on PyPI then fails
+the build instead of shipping (#121).
+
+- **Adding or changing a dependency:** edit `requirements.txt`, then run `scripts/lock.sh` and commit
+  both files. Existing pins are kept; only what you changed is resolved.
+- **Upgrading everything:** `scripts/lock.sh --upgrade`. The *Refresh dependency locks* workflow does
+  this weekly and opens a PR.
+- Use uv 0.11.28, the version CI uses (`pipx run uv==0.11.28 …` or `pip install uv==0.11.28`), so the
+  lock format matches.
+- CI's *Dependency Lock* job fails if a lock doesn't match `requirements.txt`, installs it with
+  `--require-hashes`, runs the tests against it, and runs `pip-audit` on both locks.
+
 ## How to Contribute
 
 ### Reporting Bugs

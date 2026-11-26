@@ -1,19 +1,8 @@
 version: 2
 updates:
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    groups:
-      python-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "pip"
-    directory: "/middleware"
-    schedule:
-      interval: "weekly"
-
+  # Python dependencies are pinned with hashes in requirements.lock and
+  # refreshed by .github/workflows/lock-refresh.yml (#121), so Dependabot only
+  # manages GitHub Actions and base images here.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
