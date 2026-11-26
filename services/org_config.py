@@ -94,6 +94,8 @@ ORG_CREDENTIAL_KEYS = [
     "PAGERDUTY_SERVICE_ID",
     "PAGERDUTY_FROM_EMAIL",
     "PAGERDUTY_SCHEDULE_ID",
+    # Signing secret of the org's PagerDuty V3 webhook subscription (#17).
+    "PAGERDUTY_WEBHOOK_SECRET",
     "PROMETHEUS_URL",
     "GRAFANA_URL",
     "GRAFANA_TOKEN",

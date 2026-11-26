@@ -80,6 +80,7 @@ nav:
   - Project reference:
       - Features: FEATURES_SUMMARY.md
       - Coverage gaps: COVERAGE_GAPS.md
+      - Runbook templates: runbooks/README.md
       - Questions and answers: QUESTIONS_ANSWERED.md
       - Extensions: EXTENSION_SUMMARY.md
   - Project notes:

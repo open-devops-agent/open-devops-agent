@@ -7,9 +7,11 @@ import asyncio
 import base64
 import binascii
 import hashlib
+import hmac
 import inspect
 import json
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -965,6 +967,95 @@ async def bitbucket_webhook(
         return {"status": "queued", "type": "code_review", "incident_id": incident_id}
 
     return {"status": "ignored", "reason": "unsupported_event", "event": event}
+
+
+_PD_TRIGGER_EVENTS = ("incident.triggered", "incident.reopened")
+_AGENT_INCIDENT_KEY = re.compile(r"^(?:INC-\d{8,}|mcp-)")
+
+
+def _pagerduty_signatures(header: Optional[str]) -> List[str]:
+    """PagerDuty V3 sends ``v1=<hex>`` entries, comma-separated while a secret rotates."""
+    return [part.strip()[3:] for part in (header or "").split(",") if part.strip().startswith("v1=")]
+
+
+def _verify_pagerduty(body: bytes, header: Optional[str], secret: str) -> bool:
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return any(_signatures_equal(expected, sig) for sig in _pagerduty_signatures(header))
+
+
+@app.post("/webhook/pagerduty")
+async def pagerduty_webhook(
+    request: Request,
+    x_org_id: str = Header(None, alias="X-Org-ID"),
+    x_pagerduty_signature: str = Header(None, alias="X-PagerDuty-Signature"),
+    authorization: str = Header(None),
+):
+    """PagerDuty V3 webhook subscription: triggered or reopened incidents become agent incidents (#17).
+
+    Auth: the subscription's signing secret (``PAGERDUTY_WEBHOOK_SECRET``, globally or per
+    org with PUT /orgs/{org}/config), or otherwise the usual WEBHOOK_SECRET rules
+    (``Authorization: Bearer`` custom header). Incidents the agent itself escalated
+    to PagerDuty are ignored so the two never loop.
+    """
+    body = await request.body()
+    bound_org: Optional[str] = None
+    org_secret = _org_secret(x_org_id, "PAGERDUTY_WEBHOOK_SECRET") if x_org_id else ""
+    platform_secret = os.getenv("PAGERDUTY_WEBHOOK_SECRET", "")
+    if org_secret:
+        if not _verify_pagerduty(body, x_pagerduty_signature, org_secret):
+            raise HTTPException(status_code=401, detail="Invalid PagerDuty signature")
+        bound_org = x_org_id
+    elif platform_secret and x_pagerduty_signature:
+        if not _verify_pagerduty(body, x_pagerduty_signature, platform_secret):
+            raise HTTPException(status_code=401, detail="Invalid PagerDuty signature")
+    elif platform_secret and not get_webhook_secret():
+        raise HTTPException(status_code=401, detail="PagerDuty signature required")
+    else:
+        bound_org = _require_webhook_auth(body, static_token=bearer_token(authorization), claimed_org=x_org_id)
+
+    payload = _parse_json_body(body)
+    event = payload.get("event") or {}
+    event_type = str(event.get("event_type") or "")
+    if event_type not in _PD_TRIGGER_EVENTS:
+        return {"status": "ignored", "event": event_type}
+    data = event.get("data") or {}
+    service = data.get("service") or {}
+    incident_key = str(data.get("incident_key") or "")
+    if _AGENT_INCIDENT_KEY.match(incident_key) or (
+        service.get("id") and service.get("id") == os.getenv("PAGERDUTY_SERVICE_ID")
+        and os.getenv("PAGERDUTY_INGEST_AGENT_SERVICE", "false").lower() != "true"
+    ):
+        return {"status": "ignored", "reason": "agent_escalation"}
+
+    title = str(data.get("title") or data.get("summary") or "PagerDuty incident")
+    urgency = str(data.get("urgency") or "high").lower()
+    labels = {
+        "alertname": title[:200],
+        "source": "pagerduty",
+        "pagerduty_service": str(service.get("summary") or ""),
+        "urgency": urgency,
+    }
+    context = {
+        "type": _classify_alert(title, labels),
+        "source": "pagerduty",
+        "org_id": x_org_id or os.getenv("ORG_ID", "default"),
+        "alertname": title,
+        "severity": "critical" if urgency == "high" else "warning",
+        "service": service.get("summary"),
+        "summary": title,
+        "description": str((data.get("body") or {}).get("details") or data.get("description") or "")[:4000],
+        "pagerduty_incident_id": data.get("id"),
+        "pagerduty_incident_number": data.get("number"),
+        "pagerduty_priority": (data.get("priority") or {}).get("summary"),
+        "html_url": data.get("html_url"),
+        "starts_at": data.get("created_at") or event.get("occurred_at"),
+        "labels": labels,
+    }
+    # PagerDuty retries deliveries: one agent incident per PagerDuty incident (re)trigger.
+    alert = {"fingerprint": f"pagerduty:{data.get('id')}", "startsAt": event.get("occurred_at") or ""}
+    queued, duplicates = [], []
+    await _enqueue_alert(alert, context, queued, duplicates, bound_org)
+    return _alert_response(queued, duplicates)
 
 
 @app.post("/webhook/manual")

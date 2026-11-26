@@ -337,6 +337,22 @@ All webhooks **enqueue** incidents asynchronously. The response is immediate; pr
 
 Poll `GET /audit` after ~10–60 seconds to see results.
 
+### `POST /webhook/pagerduty`
+
+PagerDuty **V3 webhook subscription**. `incident.triggered` and `incident.reopened` become agent
+incidents; every other event returns `200 {"status": "ignored"}`.
+
+| Header | Required | Description |
+|---|---|---|
+| `X-PagerDuty-Signature` | Yes, when `PAGERDUTY_WEBHOOK_SECRET` is set | `v1=<hex HMAC-SHA256 of the body>`, comma-separated while a secret rotates |
+| `X-Org-ID` | No | Org (custom header on the subscription). An org with its own `PAGERDUTY_WEBHOOK_SECRET` must be signed with it |
+| `Authorization` | Without a PagerDuty secret | `Bearer <WEBHOOK_SECRET>`, the same as Alertmanager |
+
+The context includes `pagerduty_incident_id`, `pagerduty_incident_number`, `pagerduty_priority`,
+`service`, `html_url` and `severity` (`high` urgency → `critical`, otherwise `warning`). Incidents
+on `PAGERDUTY_SERVICE_ID` or with an agent incident key are the agent's own escalations and are
+ignored (`"reason": "agent_escalation"`). Redelivered triggers return `"status": "duplicate"`.
+
 ### `POST /webhook/manual`
 
 Manually trigger an incident.
