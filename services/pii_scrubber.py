@@ -16,8 +16,12 @@ _PATTERNS: List[tuple] = [
     (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), "[REDACTED_JWT]"),
     (re.compile(r"\b(?:Bearer\s+)[A-Za-z0-9._-]{20,}\b", re.I), "Bearer [REDACTED_TOKEN]"),
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[REDACTED_SSN]"),
-    (re.compile(r"\b(?:\d[ -]*?){13,16}\b"), "[REDACTED_CARD]"),
-    (re.compile(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"), "[REDACTED_PHONE]"),
+    # Phone numbers need separators ("555-123-4567", "(555) 123 4567", "+1 555.123.4567"):
+    # a bare 10-digit run is far more often an epoch-seconds timestamp or an ID (#205).
+    (
+        re.compile(r"(?<![\w+])(?:\+?1[-.\s]?)?(?:\(\d{3}\)[-.\s]?|\d{3}[-.\s])\d{3}[-.\s]\d{4}(?![\d-])"),
+        "[REDACTED_PHONE]",
+    ),
     (re.compile(r"(?i)(?:authorization|x-api-key|api-key|cookie)\s*:\s*[^\s,;]+"), "[REDACTED_HEADER]"),
     (re.compile(r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC )?PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY]"),
 ]
@@ -75,10 +79,41 @@ def redact_secret_material(text: str) -> str:
     return text
 
 
+# Card numbers (#205): a 13-19 digit candidate (spaces or dashes allowed between digits)
+# is redacted only if it passes the Luhn check AND starts with a real card-network
+# prefix. Epoch-millisecond timestamps (13 digits starting with 1), nanosecond
+# durations and long numeric IDs are kept, so logs keep their timeline.
+_CARD_CANDIDATE = re.compile(r"(?<![\w.])\d(?:[ -]?\d){12,18}(?![\w.])")
+_CARD_PREFIX = re.compile(
+    r"^(?:4|5[1-5]|2(?:22[1-9]|2[3-9]\d|[3-6]\d\d|7[01]\d|720)|3[47]|3(?:0[0-5]|[68])"
+    r"|6(?:011|5|4[4-9]|2)|35(?:2[89]|[3-8])|5[06-9]|6\d)"
+)
+
+
+def _luhn_valid(digits: str) -> bool:
+    total = 0
+    for index, char in enumerate(reversed(digits)):
+        value = int(char)
+        if index % 2 == 1:
+            value *= 2
+            if value > 9:
+                value -= 9
+        total += value
+    return total % 10 == 0
+
+
+def _redact_card(match: "re.Match[str]") -> str:
+    digits = re.sub(r"[ -]", "", match.group(0))
+    if 13 <= len(digits) <= 19 and _CARD_PREFIX.match(digits) and _luhn_valid(digits):
+        return "[REDACTED_CARD]"
+    return match.group(0)
+
+
 def scrub_text(text: str) -> str:
     if not text or not isinstance(text, str):
         return text
     result = redact_secret_material(text)
+    result = _CARD_CANDIDATE.sub(_redact_card, result)
     for pattern, replacement in _PATTERNS:
         result = pattern.sub(replacement, result)
     return result
