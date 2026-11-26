@@ -15,6 +15,8 @@ import re
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from uuid import uuid4
 from typing import Any, Dict, List, Optional, Union
 
@@ -346,10 +348,24 @@ async def lifespan(app: FastAPI):
         log.info("DevOps AI Agent shutting down")
 
 
+def _app_version() -> str:
+    try:
+        return version("devops-ai-agent")
+    except PackageNotFoundError:
+        # Running directly from source (also how the Docker image starts).
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # Python 3.10
+            import tomli as tomllib
+
+        with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as source:
+            return tomllib.load(source)["project"]["version"]
+
+
 app = FastAPI(
     title="DevOps AI Agent",
     description="Autonomous incident diagnosis and remediation powered by Claude",
-    version="1.1.0",
+    version=_app_version(),
     lifespan=lifespan,
 )
 
@@ -497,6 +513,7 @@ async def prometheus_metrics(authorization: Optional[str] = Header(None)):
 async def health():
     return {
         "status": "ok",
+        "version": app.version,
         "auto_apply": os.getenv("AUTO_APPLY", "false"),
         "emergency_stop": is_emergency_stop_active(),
         "storage_provider": os.getenv("STORAGE_PROVIDER", "memory"),

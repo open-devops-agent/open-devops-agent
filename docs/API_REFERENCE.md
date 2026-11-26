@@ -141,13 +141,14 @@ When `METRICS_TOKEN` is set, requests without `Authorization: Bearer <METRICS_TO
 
 ### `GET /health`
 
-Health check and runtime status.
+Health check and runtime status. The `version` field matches the version in the OpenAPI schema.
 
 **Response 200:**
 
 ```json
 {
   "status": "ok",
+  "version": "1.2.0",
   "auto_apply": "false",
   "storage_provider": "memory",
   "org_id": "acme-corp",
