@@ -2,6 +2,39 @@
 
 Complete list of supported platforms, operating systems, and integrations.
 
+## Coverage status
+
+What the agent does for each platform or incident type, and where the rest is tracked (#17):
+
+| Platform / area | Status | How |
+|---|---|---|
+| AWS, GCP, Azure, Kubernetes, Docker, Helm, ArgoCD | **Built-in** | Collectors and tools (sections below) |
+| GitHub Actions, GitLab CI, Jenkins, Bamboo, Azure DevOps | **Built-in** | API collectors and retry tools; failure webhooks for GitHub and GitLab |
+| Linux (Debian, RHEL family), Windows Server | **Built-in** | OS-aware server collector over SSH |
+| Alertmanager, Grafana | **Built-in** | `POST /webhook/alertmanager`, `/webhook/grafana` |
+| PagerDuty (alert ingress) | **Built-in** | `POST /webhook/pagerduty` (V3 subscription, signed) |
+| TLS renewal with certbot | **Built-in** | `renew_certificates` (dry run first; DNS-01 and wildcard) |
+| TLS outside certbot (ACM, cert-manager, Cloudflare) | **Manual** | [Runbook template](runbooks/tls-certificate-renewal.md) + manual webhook |
+| CircleCI, Bitbucket Pipelines | **Manual**, planned in #76 | [Runbook template](runbooks/ci-circleci-bitbucket-pipelines.md) + `type: cicd` with `raw_logs` |
+| DNS (Route 53, Cloudflare) | **Manual**, planned in #75 | [Runbook template](runbooks/dns-route53-cloudflare.md); changes are always human |
+| Vault / secrets rotation | **Manual**, planned in #77 | [Runbook template](runbooks/vault-secret-rotation.md); the agent never reads secret values |
+| Terraform apply, config management | **Out of scope** for automatic changes (#74) | Plan-only tools + `suggest_fix` |
+
+**Manual** means the incident reaches the agent through `POST /webhook/manual` or an alert route. It
+diagnoses using your uploaded runbook and suggests fixes, but has no dedicated API client or
+remediation tool. See [runbook templates](runbooks/README.md).
+
+### PagerDuty ingress
+
+1. In PagerDuty: **Integrations → Generic Webhooks (v3) → New Webhook**, URL
+   `https://<agent>/webhook/pagerduty`. Subscribe to `incident.triggered` and `incident.reopened`
+   (other events are acknowledged and ignored).
+2. Copy the subscription's signing secret into `PAGERDUTY_WEBHOOK_SECRET`, or for one org:
+   `PATCH /orgs/{org}/config` with `PAGERDUTY_WEBHOOK_SECRET`, and add the custom header `X-Org-ID: <org>`.
+3. Incidents on `PAGERDUTY_SERVICE_ID` (where the agent creates its own escalations), and incidents
+   whose key is an agent incident ID, are ignored so the two never loop. Retried deliveries of the same
+   trigger create one incident.
+
 ## Cloud Providers
 
 | Provider | Supported | Collector | Services |
@@ -378,7 +411,7 @@ data = await collector.collect({
 | Datadog | Webhook integration | Easy |
 | AWS CloudWatch | EventBridge + Lambda | Medium |
 | Azure Monitor | Action Group webhook | Easy |
-| PagerDuty | Outgoing incident creation; incoming webhook not implemented | N/A for ingress |
+| PagerDuty | V3 webhook → `POST /webhook/pagerduty` (triggered and reopened incidents), plus outgoing escalation | Easy |
 | Grafana | Alert notification channel | Easy |
 
 ### Prometheus/AlertManager

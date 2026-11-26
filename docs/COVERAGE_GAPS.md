@@ -199,14 +199,16 @@ For apply: agent uses **suggest_fix** with exact `terraform apply` steps for hum
 
 | Area | Strategy |
 |------|----------|
-| DNS (Route53, Cloudflare) | Manual webhook + runbook + suggest_fix |
+| DNS (Route53, Cloudflare) | Manual webhook + [runbook template](runbooks/dns-route53-cloudflare.md) + suggest_fix (planned: #75) |
 | SSL/cert renewal prerequisites (missing certbot or invalid DNS plugin setup) | Built-in `renew_certificates` defaults to `dry_run=true` and supports DNS-01/wildcard via `CERTBOT_DNS_PLUGIN`; renewal is refused for missing certbot, an invalid domain, an unknown plugin name, or an unset `CERTBOT_DNS_CREDENTIALS` required by the selected plugin; a failed DNS-01/wildcard renewal is reported as a runtime failure. |
-| Vault/secrets rotation | Runbook + escalate |
+| Vault/secrets rotation | [Runbook template](runbooks/vault-secret-rotation.md) + escalate (planned: #77) |
 | Helm uninstall | Blocked — rollback or manual |
 | Terraform apply | suggest_fix + human apply |
 | Firewall / security groups | suggest_fix only |
-| CircleCI / Bitbucket CI | Manual webhook `type: cicd` with `raw_logs` |
+| CircleCI / Bitbucket CI | Manual webhook `type: cicd` with `raw_logs` + [runbook template](runbooks/ci-circleci-bitbucket-pipelines.md) (planned: #76) |
 | VMware / on-prem | `type: server` + SSH `host` |
+| PagerDuty alerts | Built-in: `POST /webhook/pagerduty` ([setup](PLATFORM_SUPPORT.md#pagerduty-ingress)) |
+| TLS outside certbot (ACM, cert-manager) | [Runbook template](runbooks/tls-certificate-renewal.md) + manual webhook |
 
 ---
 
