@@ -23,8 +23,9 @@ class Recorder:
     def __init__(self):
         self.calls = []
 
-    async def run(self, command, host=None):
+    async def run(self, command, host=None, **limits):
         self.calls.append(command)
+        self.limits = limits
         assert command.startswith(READ_ONLY_PREFIXES), f"non-read-only command ran: {command}"
         return {"success": True, "stdout": f"output of {command}"}
 

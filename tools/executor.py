@@ -7,6 +7,7 @@ import asyncio
 import base64
 import os
 import re
+import signal
 from typing import List, Optional, Tuple
 
 import structlog
@@ -126,6 +127,36 @@ PIPE_FILTERS = ("grep", "egrep", "head", "tail", "wc", "sort", "uniq", "cut", "j
 _RANK = {"safe": 0, "allowed": 1, "requires_approval": 2, "blocked": 3}
 
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def default_timeout() -> int:
+    return _int_env("EXECUTOR_TIMEOUT_SEC", 60)
+
+
+def default_max_output() -> int:
+    """Characters of stdout returned to the agent (the model's context), head and tail kept."""
+    return _int_env("EXECUTOR_MAX_OUTPUT_CHARS", 4000)
+
+
+def clip_output(text: str, limit: int) -> str:
+    """Keep the start and the end of long output with a marker in between (#206).
+
+    The first lines usually hold the command's header or the first error, the last
+    lines the final state; keeping only the tail lost the former.
+    """
+    if len(text) <= limit:
+        return text
+    head = limit // 4
+    tail = limit - head
+    dropped = len(text) - head - tail
+    return f"{text[:head]}\n…[truncated {dropped} characters]…\n{text[-tail:]}"
+
+
 def never_allowed_reason(command: str) -> Optional[str]:
     """Why ``command`` is permanently blocked, or None."""
     cmd = command.lower()
@@ -189,8 +220,20 @@ class SafeExecutor:
                 return "requires_approval"
         return level
 
-    async def run(self, command: str, host: Optional[str] = None) -> dict:
-        """Run a command, bypassing safety for internal approved calls."""
+    async def run(
+        self,
+        command: str,
+        host: Optional[str] = None,
+        *,
+        timeout: Optional[int] = None,
+        max_output: Optional[int] = None,
+    ) -> dict:
+        """Run a command, bypassing safety for internal approved calls.
+
+        ``timeout`` (seconds) and ``max_output`` (characters kept, head and tail)
+        default to EXECUTOR_TIMEOUT_SEC / EXECUTOR_MAX_OUTPUT_CHARS; evidence
+        capture passes larger values.
+        """
         if is_emergency_stop_active():
             return emergency_stop_block(
                 "Agent emergency stop is active. Approved actions cannot run."
@@ -215,7 +258,8 @@ class SafeExecutor:
                     "message": "Approval reference is unavailable or does not match this organisation/target.",
                 }
             command, host = retained, None
-        return await self._exec(command, host)
+        limits = {k: v for k, v in (("timeout", timeout), ("max_output", max_output)) if v is not None}
+        return await self._exec(command, host, **limits)
 
     async def run_safe(self, command: str, host: Optional[str] = None) -> dict:
         """Run with full safety checks."""
@@ -284,8 +328,18 @@ class SafeExecutor:
             ),
         }
 
-    async def _exec(self, command: str, host: Optional[str] = None) -> dict:
+    async def _exec(
+        self,
+        command: str,
+        host: Optional[str] = None,
+        *,
+        timeout: Optional[int] = None,
+        max_output: Optional[int] = None,
+    ) -> dict:
         """Execute the command."""
+        timeout = timeout or default_timeout()
+        max_output = max_output or default_max_output()
+        proc = None
         run_argv = None
         if host and host not in ("localhost", "127.0.0.1", ""):
             run_argv = build_ssh_argv(host, command)
@@ -302,6 +356,7 @@ class SafeExecutor:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=subprocess_env(),
+                    start_new_session=True,  # own process group, so a timeout stops children too
                 )
             else:
                 proc = await asyncio.create_subprocess_shell(
@@ -309,19 +364,38 @@ class SafeExecutor:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=subprocess_env(),
+                    start_new_session=True,  # own process group, so a timeout stops children too
                 )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-            return {
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            out = stdout.decode(errors="replace").strip()
+            err = stderr.decode(errors="replace").strip()
+            result = {
                 "success": proc.returncode == 0,
                 "returncode": proc.returncode,
-                "stdout": stdout.decode().strip()[-3000:],  # Truncate
-                "stderr": stderr.decode().strip()[-1000:],
+                "stdout": clip_output(out, max_output),
+                "stderr": clip_output(err, max(1000, max_output // 4)),
                 "command": display_command,
             }
+            if len(out) > max_output:
+                result["stdout_truncated_chars"] = len(out) - max_output
+            return result
         except asyncio.TimeoutError:
+            # Don't leave the command running in the background.
+            if proc is not None and proc.returncode is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    pass
             return {
                 "success": False,
-                "error": "Command timed out after 60s",
+                "error": f"Command timed out after {timeout}s and was stopped",
                 "command": display_command,
             }
         except Exception as e:

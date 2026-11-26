@@ -45,6 +45,9 @@ _RESOURCE_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,256}$")
 _LABEL = "devops-agent/quarantine"
 
 MAX_BLOCK_HOURS = 24 * 30
+# Evidence is stored, not sent to the model, so keep it whole (#206).
+EVIDENCE_TIMEOUT_SEC = int(os.getenv("EVIDENCE_TIMEOUT_SEC", "180"))
+EVIDENCE_MAX_OUTPUT_CHARS = int(os.getenv("EVIDENCE_MAX_OUTPUT_CHARS", "1000000"))
 
 
 class ContainmentError(ValueError):
@@ -113,7 +116,9 @@ class ContainmentTools:
         evidence: Dict[str, Any] = {"captured_at": datetime.now(timezone.utc).isoformat()}
         for label, cmd in commands.items():
             try:
-                result = await self.executor.run(cmd)
+                result = await self.executor.run(
+                    cmd, timeout=EVIDENCE_TIMEOUT_SEC, max_output=EVIDENCE_MAX_OUTPUT_CHARS
+                )
                 evidence[label] = {
                     "command": cmd,
                     "success": result.get("success"),
