@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "devops-ai-agent"
-version = "1.4.1"
+version = "1.5.0"
 description = "Autonomous AI-powered DevOps agent for SRE, Kubernetes, cloud, and CI/CD incident response"
 readme = "README.md"
 license = "MIT"
