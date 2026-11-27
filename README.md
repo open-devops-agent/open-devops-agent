@@ -1,4 +1,10 @@
+<p align="center">
+  <a href="https://devops-agent.arestechub.com/"><img src="https://devops-agent.arestechub.com/logo.svg" alt="DeAgent" width="96" height="96"></a>
+</p>
+
 # DevOps AI Agent
+
+<p align="center"><b>DeAgent</b> · <a href="https://devops-agent.arestechub.com/">Website</a> · <a href="https://open-devops-agent.github.io/open-devops-agent/">Docs</a> · <a href="https://github.com/open-devops-agent/open-devops-agent">GitHub</a> · <a href="https://pypi.org/project/devops-ai-agent/">PyPI</a></p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -31,7 +37,7 @@ This agent is your **24/7 on-call teammate** that handles:
 - **Centralized or co-located**: One agent server can fix remote EC2/K8s/cloud via SSH and APIs
 - **MCP server**: Expose DevOps tools to any MCP client (Cursor, Claude Desktop, custom agents)
 - **Bring your own keys (BYOK)**: Each org uses their own AI, Slack, GitHub, and cloud credentials
-- **Any AI provider**: Claude by default, or OpenAI, Google Gemini, Azure OpenAI, Ollama, or any OpenAI-compatible endpoint, per org ([AI providers](docs/AI_PROVIDERS.md))
+- **Any AI provider**: Claude by default, or OpenAI, Google Gemini, Azure OpenAI, Ollama, or any OpenAI-compatible endpoint, per org ([AI providers](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/AI_PROVIDERS.md))
 - **Plugin Architecture**: Easy to extend with custom collectors and tools
 
 ---
@@ -74,7 +80,7 @@ This agent follows **strict safety principles**:
 - **Security scanning** - Automatic vulnerability detection
 - **Compliance checks** - Validate against DevSecOps standards
 
-**Read [SECURITY_GUARANTEES.md](SECURITY_GUARANTEES.md) for complete security details.**
+**Read [SECURITY_GUARANTEES.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/SECURITY_GUARANTEES.md) for complete security details.**
 
 ---
 
@@ -127,7 +133,7 @@ This agent follows **strict safety principles**:
 - **IP whitelisting** — not in the API; filter at your load balancer / network edge.
 - **RBAC enforcement** — overstated if described as full product RBAC. Bearer admin/org tokens exist; there is **no** role model (admin/viewer/approver). Kubernetes RBAC is for cluster access only, not agent product roles.
 
-**Read [SECURITY_GUARANTEES.md](SECURITY_GUARANTEES.md) for complete details.**
+**Read [SECURITY_GUARANTEES.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/SECURITY_GUARANTEES.md) for complete details.**
 
 ---
 
@@ -155,17 +161,17 @@ The agent handles routine tasks so your team focuses on complex problems:
 - Log rotation
 - Health check failures
 
-**See [usage-readme.md](usage-readme.md) for installation, API usage, platform features, and the complete list of automated fixes.**
+**See [usage-readme.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/usage-readme.md) for installation, API usage, platform features, and the complete list of automated fixes.**
 
 | Quick links | |
 |-------------|---|
-| [Getting Started](docs/GETTING_STARTED.md) | 15-minute setup |
-| [API Reference](docs/API_REFERENCE.md) | Webhooks, audit, org docs |
+| [Getting Started](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/GETTING_STARTED.md) | 15-minute setup |
+| [API Reference](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/API_REFERENCE.md) | Webhooks, audit, org docs |
 | [MCP & BYOK](#mcp-server--bring-your-own-keys) | Connect any AI agent; org-owned credentials |
-| [Centralized Deployment](docs/CENTRALIZED_DEPLOYMENT.md) | One agent → many servers |
-| [E2E EC2 Docker Test](docs/E2E_EC2_DOCKER_TEST.md) | Full crash-loop test |
+| [Centralized Deployment](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/CENTRALIZED_DEPLOYMENT.md) | One agent → many servers |
+| [E2E EC2 Docker Test](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/E2E_EC2_DOCKER_TEST.md) | Full crash-loop test |
 
-**Build as Python package or Docker image:** [docs/BUILD_AND_USAGE.md](docs/BUILD_AND_USAGE.md)
+**Build as Python package or Docker image:** [docs/BUILD_AND_USAGE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/BUILD_AND_USAGE.md)
 
 ---
 
@@ -244,7 +250,7 @@ Monitoring → Alert → Agent → Auto-fix → Verify → Document
 - **Multi-Region**: Agent per region for low latency
 - **Team-Based**: Separate agents per team/service
 
-**Read [docs/ORGANIZATIONAL_GUIDE.md](docs/ORGANIZATIONAL_GUIDE.md) for complete deployment guide.**
+**Read [docs/ORGANIZATIONAL_GUIDE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/ORGANIZATIONAL_GUIDE.md) for complete deployment guide.**
 
 ---
 
@@ -301,7 +307,7 @@ stdio runs as a local process for one user and needs none of these.
 
 ### Connect from Cursor (or any MCP client)
 
-Copy [mcp-config.example.json](mcp-config.example.json) into your MCP settings. **Each org fills in their own keys:**
+Copy [mcp-config.example.json](https://github.com/open-devops-agent/open-devops-agent/blob/main/mcp-config.example.json) into your MCP settings. **Each org fills in their own keys:**
 
 ```json
 {
@@ -359,7 +365,7 @@ curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8000/orgs/acme-corp/
 
 Credentials are stored at `{org_id}/config/credentials.json` in org-scoped storage and applied per request — org A never uses org B's keys.
 
-`$API_TOKEN` is either the platform's `API_ADMIN_TOKEN` (any org) or that org's token from `API_ORG_TOKENS` (`acme-corp=...`), which can only read or write `acme-corp`. The org config, docs and audit routes return **503** until one of them is set; see [API authentication](docs/API_REFERENCE.md#authentication).
+`$API_TOKEN` is either the platform's `API_ADMIN_TOKEN` (any org) or that org's token from `API_ORG_TOKENS` (`acme-corp=...`), which can only read or write `acme-corp`. The org config, docs and audit routes return **503** until one of them is set; see [API authentication](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/API_REFERENCE.md#authentication).
 
 ### Fix Verification
 
@@ -445,7 +451,7 @@ docs, because a diagnosis can quote attacker-controlled log text and the agent r
 - Microsoft Teams integration
 - PagerDuty escalation
 
-**See [docs/ORGANIZATIONAL_GUIDE.md](docs/ORGANIZATIONAL_GUIDE.md) for integration details.**
+**See [docs/ORGANIZATIONAL_GUIDE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/ORGANIZATIONAL_GUIDE.md) for integration details.**
 
 ---
 
@@ -488,7 +494,7 @@ self.collectors['my_platform'] = MyPlatformCollector()
 - **RBAC enforcement**: Least-privilege access controls
 - **Emergency stop**: Kill switch for immediate shutdown
 
-**See [SECURITY_POLICY.md](SECURITY_POLICY.md) and [DEVSECOPS_GUIDE.md](DEVSECOPS_GUIDE.md) for details.**
+**See [SECURITY_POLICY.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/SECURITY_POLICY.md) and [DEVSECOPS_GUIDE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/DEVSECOPS_GUIDE.md) for details.**
 
 ### Multi-Platform Support
 
@@ -580,7 +586,7 @@ ENABLE_COMPLIANCE_CHECKS=true
 
 **WARNING: IMPORTANT**: Configure email alerts BEFORE deployment. The agent sends email notifications for dangerous operations that require manual intervention.
 
-See [.env.example](.env.example) for all configuration options.
+See [.env.example](https://github.com/open-devops-agent/open-devops-agent/blob/main/.env.example) for all configuration options.
 
 ### 3. Run Locally
 
@@ -611,9 +617,9 @@ curl -H "Authorization: Bearer $API_TOKEN" "http://localhost:8000/audit?org_id=a
 
 | Resource | Description |
 |----------|-------------|
-| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | Full REST API reference |
-| [docs/API_TESTING.md](docs/API_TESTING.md) | Postman & curl testing guide |
-| [postman/](postman/) | Postman collection + local environment |
+| [docs/API_REFERENCE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/API_REFERENCE.md) | Full REST API reference |
+| [docs/API_TESTING.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/API_TESTING.md) | Postman & curl testing guide |
+| [postman/](https://github.com/open-devops-agent/open-devops-agent/tree/main/postman) | Postman collection + local environment |
 | `scripts/test_api_flow.sh` | Automated end-to-end API test |
 
 **Postman quick start:** Import `postman/DevOps-AI-Agent.postman_collection.json` and `postman/DevOps-AI-Agent-Local.postman_environment.json`, then run the **End-to-End Test Flow** folder.
@@ -625,7 +631,7 @@ curl -H "Authorization: Bearer $API_TOKEN" "http://localhost:8000/audit?org_id=a
 | `GET` | `/health` | Agent & queue worker status |
 | `GET` | `/audit?org_id=` | Org-scoped incident audit log |
 | `PUT` | `/orgs/{org}/config` | Store org-owned API keys (BYOK) |
-| `PATCH` | `/orgs/{org}/config` | Rotate individual keys ([rotation guide](docs/CREDENTIAL_ROTATION.md)) |
+| `PATCH` | `/orgs/{org}/config` | Rotate individual keys ([rotation guide](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/CREDENTIAL_ROTATION.md)) |
 | `DELETE` | `/orgs/{org}/config` | Revoke all or `?keys=` selected credentials |
 | `GET` | `/orgs/{org}/config/audit` | Credential change history (keys only) |
 | `GET` | `/orgs/{org}/config/status` | Which credentials are configured |
@@ -704,10 +710,10 @@ kubectl logs -f deployment/devops-agent -n devops-agent
 
 Detailed guides for each platform:
 
-- [Multi-Platform Guide](MULTI_PLATFORM_GUIDE.md) - Complete configuration reference
+- [Multi-Platform Guide](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/MULTI_PLATFORM_GUIDE.md) - Complete configuration reference
 - [GitHub Actions Setup](#github-actions)
-- [Kubernetes deployment](docs/DEPLOYMENT.md)
-- [Cloud provider configuration](docs/MULTI_PLATFORM_GUIDE.md#cloud-providers)
+- [Kubernetes deployment](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/DEPLOYMENT.md)
+- [Cloud provider configuration](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/MULTI_PLATFORM_GUIDE.md#cloud-providers)
 
 ### Webhook Configuration
 
@@ -734,7 +740,7 @@ receivers:
 
 #### Grafana Alerting (alerts + Loki logs)
 
-Full setup guide: [docs/GRAFANA_PROMETHEUS.md](docs/GRAFANA_PROMETHEUS.md).
+Full setup guide: [docs/GRAFANA_PROMETHEUS.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/GRAFANA_PROMETHEUS.md).
 
 1. **Alerting → Contact points → New → Webhook**
    - URL: `https://your-agent-domain.com/webhook/grafana`
@@ -787,7 +793,7 @@ python scripts/simulate_incident.py cicd
 # EC2 Docker E2E — see docs/E2E_EC2_DOCKER_TEST.md
 ```
 
-See [docs/API_TESTING.md](docs/API_TESTING.md) and [CI pipeline](.github/workflows/ci.yml).
+See [docs/API_TESTING.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/API_TESTING.md) and [CI pipeline](https://github.com/open-devops-agent/open-devops-agent/blob/main/.github/workflows/ci.yml).
 
 ---
 
@@ -921,7 +927,7 @@ class DevOpsAgent:
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+We welcome contributions! See [CONTRIBUTING.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/CONTRIBUTING.md) for:
 
 - Code style guidelines
 - Testing requirements
@@ -948,46 +954,46 @@ pytest --cov=. tests/
 ## Documentation
 
 The GitHub Pages website is prepared by the documentation workflow. See the
-[website guide](docs/DOCUMENTATION_SITE.md) for local previews and maintainer setup.
+[website guide](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/DOCUMENTATION_SITE.md) for local previews and maintainer setup.
 
 ### Start here
 
 | Doc | Description |
 |-----|-------------|
-| [usage-readme.md](usage-readme.md) | Installation, configuration, automated fixes |
-| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | 15-minute quick start |
-| [SECURITY_GUARANTEES.md](SECURITY_GUARANTEES.md) | Safety guarantees — read before production |
-| [SECURITY_POLICY.md](docs/SECURITY_POLICY.md) | Blocked operations and approval workflow |
+| [usage-readme.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/usage-readme.md) | Installation, configuration, automated fixes |
+| [docs/GETTING_STARTED.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/GETTING_STARTED.md) | 15-minute quick start |
+| [SECURITY_GUARANTEES.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/SECURITY_GUARANTEES.md) | Safety guarantees — read before production |
+| [SECURITY_POLICY.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/SECURITY_POLICY.md) | Blocked operations and approval workflow |
 
 ### API & testing
 
 | Doc | Description |
 |-----|-------------|
-| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | Full REST API (webhooks, audit, org docs) |
-| [mcp-config.example.json](mcp-config.example.json) | Cursor / MCP client config (BYOK) |
-| [docs/API_TESTING.md](docs/API_TESTING.md) | Postman and curl test procedures |
-| [postman/](postman/) | Postman collection + local environment |
+| [docs/API_REFERENCE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/API_REFERENCE.md) | Full REST API (webhooks, audit, org docs) |
+| [mcp-config.example.json](https://github.com/open-devops-agent/open-devops-agent/blob/main/mcp-config.example.json) | Cursor / MCP client config (BYOK) |
+| [docs/API_TESTING.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/API_TESTING.md) | Postman and curl test procedures |
+| [postman/](https://github.com/open-devops-agent/open-devops-agent/tree/main/postman) | Postman collection + local environment |
 | `scripts/test_api_flow.sh` | Automated API smoke test |
 
 ### Deployment & operations
 
 | Doc | Description |
 |-----|-------------|
-| [docs/CENTRALIZED_DEPLOYMENT.md](docs/CENTRALIZED_DEPLOYMENT.md) | One agent server → remote EC2/K8s/cloud |
-| [docs/E2E_EC2_DOCKER_TEST.md](docs/E2E_EC2_DOCKER_TEST.md) | EC2 + Docker crash-loop end-to-end test |
-| [docs/ESCALATION.md](docs/ESCALATION.md) | Jira, Zoho, email, Slack auto-ticketing |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | K8s, AWS ECS, GCP Cloud Run, Azure |
-| [docs/BUILD_AND_USAGE.md](docs/BUILD_AND_USAGE.md) | Python package and Docker image |
-| [docs/ORGANIZATIONAL_GUIDE.md](docs/ORGANIZATIONAL_GUIDE.md) | Enterprise rollout |
+| [docs/CENTRALIZED_DEPLOYMENT.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/CENTRALIZED_DEPLOYMENT.md) | One agent server → remote EC2/K8s/cloud |
+| [docs/E2E_EC2_DOCKER_TEST.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/E2E_EC2_DOCKER_TEST.md) | EC2 + Docker crash-loop end-to-end test |
+| [docs/ESCALATION.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/ESCALATION.md) | Jira, Zoho, email, Slack auto-ticketing |
+| [docs/DEPLOYMENT.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/DEPLOYMENT.md) | K8s, AWS ECS, GCP Cloud Run, Azure |
+| [docs/BUILD_AND_USAGE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/BUILD_AND_USAGE.md) | Python package and Docker image |
+| [docs/ORGANIZATIONAL_GUIDE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/ORGANIZATIONAL_GUIDE.md) | Enterprise rollout |
 
 ### Reference
 
 | Doc | Description |
 |-----|-------------|
-| [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) | CI/CD, cloud, OS support matrix |
-| [docs/MULTI_PLATFORM_GUIDE.md](docs/MULTI_PLATFORM_GUIDE.md) | Multi-platform configuration |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System design |
-| [docs/README.md](docs/README.md) | Full documentation index |
+| [docs/PLATFORM_SUPPORT.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/PLATFORM_SUPPORT.md) | CI/CD, cloud, OS support matrix |
+| [docs/MULTI_PLATFORM_GUIDE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/MULTI_PLATFORM_GUIDE.md) | Multi-platform configuration |
+| [ARCHITECTURE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/ARCHITECTURE.md) | System design |
+| [docs/README.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/README.md) | Full documentation index |
 
 ---
 
@@ -1011,7 +1017,7 @@ Do not open public issues for security concerns.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/open-devops-agent/open-devops-agent/blob/main/LICENSE) file for details.
 
 ---
 
