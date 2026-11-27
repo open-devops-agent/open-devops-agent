@@ -1,15 +1,29 @@
-site_name: Open DevOps Agent documentation
+site_name: DeAgent docs
 site_url: https://open-devops-agent.github.io/open-devops-agent/
 repo_url: https://github.com/open-devops-agent/open-devops-agent
 edit_uri: ''
 site_description: Installation, deployment, API and security guides for Open DevOps Agent.
 theme:
   name: material
-  font: false
+  # Matches the DeAgent website: Inter + JetBrains Mono, dark by default.
+  font:
+    text: Inter
+    code: JetBrains Mono
+  logo: assets/images/logo.svg
+  favicon: assets/images/logo.svg
   palette:
-    scheme: default
-    primary: custom
-    accent: custom
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
   features:
     - navigation.instant
     - navigation.instant.progress
@@ -23,6 +37,19 @@ theme:
     - toc.follow
 extra:
   generator: false
+  social:
+    - icon: material/web
+      link: https://devops-agent.arestechub.com/
+      name: DeAgent website
+    - icon: fontawesome/brands/github
+      link: https://github.com/open-devops-agent/open-devops-agent
+      name: GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/devops-ai-agent/
+      name: PyPI
+    - icon: material/coffee
+      link: https://buymeacoffee.com/gabeokiri
+      name: Buy me a coffee
 extra_css:
   - assets/stylesheets/documentation.css
 extra_javascript:

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-label="DeAgent">
+  <rect width="512" height="512" rx="96" fill="#0a0f1a"/>
+  <path
+    d="M128 128h112c88 0 144 56 144 128s-56 128-144 128H128V128z"
+    stroke="#1a82f5"
+    stroke-width="40"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M128 128v256"
+    stroke="#1a82f5"
+    stroke-width="40"
+    stroke-linecap="round"
+  />
+  <path
+    d="M128 384l-32 32"
+    stroke="#1a82f5"
+    stroke-width="40"
+    stroke-linecap="round"
+  />
+  <path
+    d="M220 220h72"
+    stroke="#ffffff"
+    stroke-width="28"
+    stroke-linecap="round"
+  />
+  <path
+    d="M236 252h88"
+    stroke="#ffffff"
+    stroke-width="28"
+    stroke-linecap="round"
+  />
+  <circle cx="332" cy="332" r="28" fill="#ffffff"/>
+  <circle cx="332" cy="332" r="44" stroke="#59c0ff" stroke-width="12"/>
+</svg>
