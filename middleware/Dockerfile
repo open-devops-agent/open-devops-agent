@@ -1,5 +1,5 @@
 # Base image pinned by digest; Dependabot (docker ecosystem) proposes updates.
-FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+FROM python:3.13-slim@sha256:7249d5587b78209a006dc4a3b5340678f84ea729239193aa559962cd8c1fce50
 
 WORKDIR /app
 # Apply Debian security updates released after the base image was built.
