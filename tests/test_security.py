@@ -250,14 +250,17 @@ class TestWebhookEndpoints:
         assert response.status_code == 200
         assert response.json()["status"] == "queued"
 
-    def test_health_reports_emergency_stop(self, monkeypatch):
+    def test_status_reports_emergency_stop(self, monkeypatch):
         monkeypatch.setenv("AGENT_EMERGENCY_STOP", "true")
+        monkeypatch.setenv("API_AUTH_DISABLED", "true")
         from api.server import app
 
         client = TestClient(app)
-        response = client.get("/health")
+        response = client.get("/status")
         assert response.status_code == 200
         assert response.json()["emergency_stop"] is True
+        # The unauthenticated probe no longer reveals it (#225).
+        assert client.get("/health").json() == {"status": "ok"}
 
     @pytest.mark.parametrize(
         "path",
