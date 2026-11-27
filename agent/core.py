@@ -1033,7 +1033,13 @@ def _verification_expected_state(issue_type: str, context: dict) -> dict:
             expected_state["namespace"] = context["namespace"]
         return expected_state
     if issue_type in ("server", "linux", "windows", "rhel") and context.get("service"):
-        return {"service_name": context["service"]}
+        expected_state = {"service_name": context["service"]}
+        # Only an SSH-reachable host is a verification target; a node name may be a
+        # Kubernetes or inventory identifier that does not resolve.
+        target_host = context.get("host")
+        if target_host:
+            expected_state["target_host"] = target_host
+        return expected_state
     if issue_type == "cicd":
         expected_state = {
             "platform": get_cicd_platform(context.get("labels", {}) or {}, context),

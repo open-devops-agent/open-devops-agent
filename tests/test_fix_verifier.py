@@ -6,6 +6,7 @@ its observations with a delay strictly greater than zero, so their count is
 governed by the requested time window rather than by event-loop throughput.
 """
 
+import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 import types
 
@@ -304,11 +305,80 @@ class TestFailClosedVerification:
     @pytest.mark.asyncio
     async def test_server_with_service_name_observes_service(self):
         verifier = FixVerifier()
-        with patch("platform.system", return_value="Linux"), patch(
-            "subprocess.run"
+        with patch(
+            "collectors.server.ServerCollector.detect_os", AsyncMock(return_value="linux")
+        ), patch(
+            "collectors.server.ServerCollector._run", AsyncMock(return_value="active")
         ) as mock_run:
-            mock_run.return_value = MagicMock(stdout="active\n")
             result = await verifier._verify_server_fix({"service_name": "nginx"})
         assert result["passed"] is True
-        mock_run.assert_called_once()
-        assert mock_run.call_args[0][0] == ["systemctl", "is-active", "nginx"]
+        mock_run.assert_awaited_once_with("systemctl is-active nginx", None)
+
+
+class TestServerVerificationTarget:
+    """
+    Regression coverage for issue #193: server fixes are verified on the target
+    server (over SSH), not on the host running the agent.
+    """
+
+    @pytest.mark.asyncio
+    async def test_remote_server_service_is_checked_over_ssh(self, monkeypatch):
+        monkeypatch.setenv("SSH_REMOTE_USER", "ops")
+        proc = MagicMock()
+        proc.communicate = AsyncMock(return_value=(b"active\n", b""))
+        with patch(
+            "collectors.server.ServerCollector.detect_os", AsyncMock(return_value="debian")
+        ), patch(
+            "asyncio.create_subprocess_exec", AsyncMock(return_value=proc)
+        ) as mock_exec, patch("subprocess.run") as mock_local:
+            result = await FixVerifier()._verify_server_fix(
+                {"service_name": "nginx", "target_host": "10.0.0.5"}
+            )
+        mock_local.assert_not_called()
+        assert result["passed"] is True
+        argv = mock_exec.call_args.args
+        assert argv[0] == "ssh"
+        assert "ops@10.0.0.5" in argv
+        assert argv[-1] == "systemctl is-active nginx"
+
+    @pytest.mark.asyncio
+    async def test_remote_windows_service_uses_powershell(self):
+        proc = MagicMock()
+        proc.communicate = AsyncMock(return_value=(b"Running\r\n", b""))
+        with patch(
+            "collectors.server.ServerCollector.detect_os", AsyncMock(return_value="windows")
+        ), patch(
+            "asyncio.create_subprocess_exec", AsyncMock(return_value=proc)
+        ) as mock_exec, patch("subprocess.run") as mock_local:
+            result = await FixVerifier()._verify_server_fix(
+                {"service_name": "Spooler", "target_host": "10.0.0.7"}
+            )
+        mock_local.assert_not_called()
+        assert result["passed"] is True
+        assert result["details"]["os_family"] == "windows"
+        argv = mock_exec.call_args.args
+        assert argv[0] == "ssh"
+        assert "10.0.0.7" in argv
+        remote_cmd = argv[-1]
+        assert remote_cmd.startswith("powershell -NoProfile -NonInteractive -EncodedCommand ")
+        assert "systemctl" not in remote_cmd
+        script = base64.b64decode(remote_cmd.rsplit(" ", 1)[1]).decode("utf-16-le")
+        assert "Get-Service -Name 'Spooler'" in script
+
+    @pytest.mark.asyncio
+    async def test_local_service_check_runs_in_local_shell(self, monkeypatch):
+        monkeypatch.delenv("SSH_REMOTE_USER", raising=False)
+        proc = MagicMock()
+        proc.communicate = AsyncMock(return_value=(b"active\n", b""))
+        with patch(
+            "collectors.server.ServerCollector.detect_os", AsyncMock(return_value="debian")
+        ), patch(
+            "asyncio.create_subprocess_shell", AsyncMock(return_value=proc)
+        ) as mock_shell, patch(
+            "asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            result = await FixVerifier()._verify_server_fix({"service_name": "nginx"})
+        assert result["passed"] is True
+        assert result["details"]["target_host"] == "localhost"
+        mock_exec.assert_not_called()
+        assert mock_shell.call_args.args[0] == "systemctl is-active nginx"
