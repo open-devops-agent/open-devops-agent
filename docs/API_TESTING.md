@@ -63,7 +63,7 @@ Use the **End-to-End Test Flow** folder — run requests **in order**:
 
 | Folder | What it tests |
 |--------|---------------|
-| Health & Audit | `/health`, `/audit` |
+| Health, status & audit | `/health`, `/status`, `/audit` |
 | Organization Documentation | CRUD for org runbooks |
 | Webhooks | Manual, Alertmanager, GitHub triggers |
 | Slack Integration | Approval callbacks (normally Slack-only) |
@@ -263,7 +263,7 @@ acme-corp/docs/runbooks/
 | Symptom | Fix |
 |---------|-----|
 | `status: queued` but no audit entry | Wait longer; check agent logs for queue worker errors |
-| `queue_worker: false` in /health | Server still starting — wait a few seconds |
+| `queue_worker: false` in /status | Server still starting — wait a few seconds |
 | `resolved: false`, `grounded: false` | Expected without real infra — agent requires tool evidence |
 | `401` on GitHub webhook | Set `WEBHOOK_SECRET` and sign payload, or unset secret for local testing |
 | Empty audit for wrong org | Pass matching `org_id` query param or `X-Org-ID` header |
@@ -273,7 +273,7 @@ acme-corp/docs/runbooks/
 
 ## Production testing checklist
 
-- [ ] `GET /health` returns `queue_worker: true`
+- [ ] `GET /health` returns `{"status": "ok"}` and `GET /status` (with a token) returns `queue_worker: true`
 - [ ] Upload runbook via `POST /orgs/{org}/docs`
 - [ ] Trigger test incident via `POST /webhook/manual`
 - [ ] Audit entry appears in `GET /audit?org_id=...`

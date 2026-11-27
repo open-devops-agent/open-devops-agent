@@ -10,7 +10,8 @@ All incident data is **org-scoped** and stored in cloud object storage (S3, MinI
 
 | Endpoint group | Auth |
 |----------------|------|
-| `/health` | None (liveness probe) |
+| `/health` | None (liveness probe; returns only `{"status": "ok"}`) |
+| `/status` | `Authorization: Bearer <token>` with viewer role or above, the same as `/audit` |
 | `/metrics` | None, or `Authorization: Bearer <METRICS_TOKEN>` when `METRICS_TOKEN` is set |
 | `/audit`, `/orgs/{org_id}/config*`, `/orgs/{org_id}/docs*` | `Authorization: Bearer <token>`: `API_ADMIN_TOKEN` (any org) or the org's own token from `API_ORG_TOKENS`. See [Management API tokens](#management-api-tokens) |
 | `/webhook/github` | `X-Hub-Signature-256` when `WEBHOOK_SECRET` is set |
@@ -141,7 +142,18 @@ When `METRICS_TOKEN` is set, requests without `Authorization: Bearer <METRICS_TO
 
 ### `GET /health`
 
-Health check and runtime status.
+Liveness and readiness probe. It needs no token, so it reveals nothing about configuration.
+
+**Response 200:**
+
+```json
+{"status": "ok"}
+```
+
+### `GET /status`
+
+Runtime status for operators. Needs a viewer, approver or admin token for the org (`org_id` query
+parameter, default `ORG_ID`), the same as `/audit`.
 
 **Response 200:**
 
@@ -149,6 +161,7 @@ Health check and runtime status.
 {
   "status": "ok",
   "auto_apply": "false",
+  "emergency_stop": false,
   "storage_provider": "memory",
   "org_id": "acme-corp",
   "queue_worker": true

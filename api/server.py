@@ -495,12 +495,21 @@ async def prometheus_metrics(authorization: Optional[str] = Header(None)):
 
 @app.get("/health")
 async def health():
+    """Liveness probe. Unauthenticated, so it reveals nothing about configuration (#225)."""
+    return {"status": "ok"}
+
+
+@app.get("/status")
+async def status(org_id: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """Runtime status for operators (viewer token, like /audit): what /health used to show."""
+    org = org_id or os.getenv("ORG_ID", "default")
+    require_org_access(org, authorization, min_role="viewer")
     return {
         "status": "ok",
         "auto_apply": os.getenv("AUTO_APPLY", "false"),
         "emergency_stop": is_emergency_stop_active(),
         "storage_provider": os.getenv("STORAGE_PROVIDER", "memory"),
-        "org_id": os.getenv("ORG_ID", "default"),
+        "org_id": org,
         "queue_worker": _queue_running,
     }
 
