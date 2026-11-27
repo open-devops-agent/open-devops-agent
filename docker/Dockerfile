@@ -66,4 +66,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# One worker by default: the default in-memory storage is private to each process,
+# so a second worker would accept webhooks and approvals it can never act on (#224).
+# Set WEB_CONCURRENCY > 1 only with shared storage (STORAGE_PROVIDER=s3/gcs/azure/minio).
+ENV WEB_CONCURRENCY=1
+CMD ["sh", "-c", "exec uvicorn api.server:app --host 0.0.0.0 --port \"${PORT:-8000}\" --workers \"${WEB_CONCURRENCY:-1}\""]

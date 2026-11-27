@@ -30,11 +30,20 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # Local default binds loopback; set HOST=0.0.0.0 for Docker/K8s ingress.
     host = args.host or os.getenv("HOST", "127.0.0.1")
     port = args.port or int(os.getenv("PORT", "8000"))
-    workers = args.workers or int(os.getenv("UVICORN_WORKERS", "2"))
+    workers = args.workers or int(os.getenv("WEB_CONCURRENCY") or os.getenv("UVICORN_WORKERS") or "1")
     reload = args.reload
 
     if reload and workers > 1:
         workers = 1
+    if workers > 1 and os.getenv("STORAGE_PROVIDER", "memory").lower().strip() in ("memory", "local", ""):
+        # Each worker would keep its own private queue, approvals and config (#224).
+        print(
+            "error: --workers > 1 needs shared storage. With STORAGE_PROVIDER=memory each worker "
+            "keeps its own queue and approvals, so incidents and Slack approvals would be lost. "
+            "Use one worker, or set STORAGE_PROVIDER=s3|gcs|azure|minio.",
+            file=sys.stderr,
+        )
+        return 2
 
     uvicorn.run(
         "api.server:app",
@@ -70,7 +79,7 @@ def main() -> None:
     serve = sub.add_parser("serve", help="Start the webhook API server")
     serve.add_argument("--host", default=None, help="Bind host (default: 127.0.0.1, or HOST env)")
     serve.add_argument("--port", type=int, default=None, help="Bind port (default: 8000)")
-    serve.add_argument("--workers", type=int, default=None, help="Uvicorn workers (default: 2)")
+    serve.add_argument("--workers", type=int, default=None, help="Uvicorn workers (default: 1; >1 needs shared storage)")
     serve.add_argument("--reload", action="store_true", help="Dev mode: auto-reload on code changes")
     serve.set_defaults(func=cmd_serve)
 

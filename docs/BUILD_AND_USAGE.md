@@ -102,7 +102,7 @@ nano .env
 **2. Start the agent**
 
 ```bash
-# Production (2 workers)
+# Production (one worker; more workers need shared storage, see below)
 devops-agent serve
 
 # Custom port
@@ -118,8 +118,12 @@ devops-agent version
 **Alternative (without CLI — same server):**
 
 ```bash
-uvicorn api.server:app --host 0.0.0.0 --port 8000 --workers 2
+uvicorn api.server:app --host 0.0.0.0 --port 8000 --workers 1
 ```
+
+> **More than one worker or replica needs shared storage** (`STORAGE_PROVIDER=s3|gcs|azure|minio`).
+> With the default in-memory storage each process keeps its own queue, approvals and org config,
+> so the agent refuses to start a second worker instead of silently losing incidents.
 
 **3. Test**
 

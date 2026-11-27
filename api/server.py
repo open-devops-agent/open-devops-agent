@@ -49,6 +49,7 @@ from services.alert_dedupe import AlertDeduper
 from services.incident_queue import QUEUE_PENDING, QUEUE_PROCESSING, IncidentQueue
 from services import metrics
 from services.incident_store import IncidentStore
+from storage.memory_storage import MemoryStorage
 from tools.documentation_generator import render_incident_docs
 from services.org_docs import OrgDocs
 from services.escalation import EscalationService, parse_queue_timestamp
@@ -310,6 +311,23 @@ def _warn_missing_webhook_secrets() -> None:
         )
 
 
+def _ensure_storage_is_shared(lock_handle) -> None:
+    """Refuse to run a second process on private in-memory storage (#224).
+
+    Only the process holding the background lock runs the queue worker. With
+    MemoryStorage every process has its own queue, approvals and org config, so
+    a second worker would answer "queued" for incidents nobody will process and
+    reject Slack approvals stored in the other process.
+    """
+    if lock_handle is None and isinstance(incident_store.storage, MemoryStorage):
+        raise RuntimeError(
+            "Another agent process is already running on in-memory storage (STORAGE_PROVIDER=memory). "
+            "Each process would keep its own queue and approvals, silently losing incidents. "
+            "Run a single worker (WEB_CONCURRENCY=1 / --workers 1) or configure shared storage "
+            "(STORAGE_PROVIDER=s3|gcs|azure|minio)."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _queue_worker_task, _retention_task, _containment_task, _background_lock_handle, _queue_running
@@ -321,6 +339,7 @@ async def lifespan(app: FastAPI):
     _warn_missing_webhook_secrets()
     _background_lock_handle = acquire_background_worker_lock()
     try:
+        _ensure_storage_is_shared(_background_lock_handle)
         incident_queue.adopt_legacy_reviews()
         if _background_lock_handle is None:
             log.info("Queue and retention loops are already running in another process")
