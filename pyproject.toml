@@ -110,10 +110,11 @@ dev = [
 devops-agent = "devops_agent.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/open-devops-agent/open-devops-agent"
-Documentation = "https://github.com/open-devops-agent/open-devops-agent#readme"
+Homepage = "https://devops-agent.arestechub.com/"
+Documentation = "https://open-devops-agent.github.io/open-devops-agent/"
 Repository = "https://github.com/open-devops-agent/open-devops-agent"
 Issues = "https://github.com/open-devops-agent/open-devops-agent/issues"
+Funding = "https://buymeacoffee.com/gabeokiri"
 
 [tool.setuptools.packages.find]
 where = ["."]

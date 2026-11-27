@@ -3,6 +3,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/open-devops-agent/open-devops-agent/workflows/CI/badge.svg)](https://github.com/open-devops-agent/open-devops-agent/actions)
+[![Website](https://img.shields.io/badge/website-devops--agent.arestechub.com-0A66C2)](https://devops-agent.arestechub.com/)
+[![Docs](https://img.shields.io/badge/docs-open--devops--agent.github.io-informational)](https://open-devops-agent.github.io/open-devops-agent/)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/gabeokiri)
 
 An autonomous **AI-powered DevOps agent** that monitors, diagnoses, and fixes incidents across your entire infrastructure stack — automatically. Built for **SRE teams** who want to reduce toil and improve MTTR (Mean Time To Recovery).
@@ -1023,6 +1025,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support & Community
 
+- **Website**: [devops-agent.arestechub.com](https://devops-agent.arestechub.com/)
+- **Documentation**: [open-devops-agent.github.io/open-devops-agent](https://open-devops-agent.github.io/open-devops-agent/)
 - **Issues**: [GitHub Issues](https://github.com/open-devops-agent/open-devops-agent/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/open-devops-agent/open-devops-agent/discussions)
 - **Slack**: [Join our community](https://your-slack-invite.link)
