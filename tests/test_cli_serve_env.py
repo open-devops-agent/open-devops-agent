@@ -23,7 +23,14 @@ import pytest
 from devops_agent import cli
 
 REPO_ROOT = Path(cli.__file__).resolve().parent.parent
-SERVE_ENV_VARS = ("HOST", "PORT", "UVICORN_WORKERS")
+SERVE_ENV_VARS = ("HOST", "PORT", "UVICORN_WORKERS", "WEB_CONCURRENCY")
+
+
+@pytest.fixture(autouse=True)
+def shared_storage(monkeypatch):
+    """These tests are about where settings come from; several workers need shared
+    storage (#224), so declare one. The memory guard has its own tests."""
+    monkeypatch.setenv("STORAGE_PROVIDER", "s3")
 
 
 @pytest.fixture
@@ -88,7 +95,7 @@ def test_serve_defaults_unchanged_without_dotenv(monkeypatch):
     kwargs = _run_serve()
     assert kwargs["host"] == "127.0.0.1"
     assert kwargs["port"] == 8000
-    assert kwargs["workers"] == 2
+    assert kwargs["workers"] == 1  # one worker by default (#224)
 
 
 def test_serve_reads_dotenv_from_invocation_cwd(tmp_path, monkeypatch):

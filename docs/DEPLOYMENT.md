@@ -556,8 +556,10 @@ resources:
 # api/server.py
 app = FastAPI()
 
-# Adjust worker count based on load
-# uvicorn api.server:app --workers 4
+# Adjust worker count based on load: only with shared storage
+# (STORAGE_PROVIDER=s3|gcs|azure|minio). With in-memory storage keep one worker;
+# a second process refuses to start because it couldn't see the queue or approvals.
+# WEB_CONCURRENCY=4 uvicorn api.server:app --workers 4
 ```
 
 ### Caching

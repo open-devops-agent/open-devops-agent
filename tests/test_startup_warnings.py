@@ -63,6 +63,7 @@ def test_lifespan_calls_the_check(monkeypatch):
     calls = []
     monkeypatch.setattr(server, "_warn_missing_webhook_secrets", lambda: calls.append(1))
     monkeypatch.setattr(server, "acquire_background_worker_lock", lambda: None)
+    monkeypatch.setattr(server, "_ensure_storage_is_shared", lambda handle: None)
     monkeypatch.setattr(server, "release_background_worker_lock", lambda handle: None)
     monkeypatch.setattr(server.incident_queue, "adopt_legacy_reviews", lambda: None)
 
