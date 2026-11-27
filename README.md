@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/open-devops-agent/open-devops-agent/workflows/CI/badge.svg)](https://github.com/open-devops-agent/open-devops-agent/actions)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/gabeokiri)
 
 An autonomous **AI-powered DevOps agent** that monitors, diagnoses, and fixes incidents across your entire infrastructure stack — automatically. Built for **SRE teams** who want to reduce toil and improve MTTR (Mean Time To Recovery).
 
@@ -1025,6 +1026,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Issues**: [GitHub Issues](https://github.com/open-devops-agent/open-devops-agent/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/open-devops-agent/open-devops-agent/discussions)
 - **Slack**: [Join our community](https://your-slack-invite.link)
+
+### Support the project
+
+If the agent saves your team time, you can support its development on
+[Buy Me a Coffee](https://buymeacoffee.com/gabeokiri). Thank you!
+
+<a href="https://buymeacoffee.com/gabeokiri"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-gabeokiri-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
 
 ---
 
