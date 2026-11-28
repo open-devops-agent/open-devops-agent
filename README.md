@@ -7,7 +7,7 @@
 <p align="center"><b>DeAgent</b> · <a href="https://devops-agent.arestechub.com/">Website</a> · <a href="https://open-devops-agent.github.io/open-devops-agent/">Docs</a> · <a href="https://github.com/open-devops-agent/open-devops-agent">GitHub</a> · <a href="https://pypi.org/project/devops-ai-agent/">PyPI</a></p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/open-devops-agent/open-devops-agent/workflows/CI/badge.svg)](https://github.com/open-devops-agent/open-devops-agent/actions)
 [![Website](https://img.shields.io/badge/website-devops--agent.arestechub.com-0A66C2)](https://devops-agent.arestechub.com/)
 [![Docs](https://img.shields.io/badge/docs-open--devops--agent.github.io-informational)](https://open-devops-agent.github.io/open-devops-agent/)
@@ -435,9 +435,9 @@ docs, because a diagnosis can quote attacker-controlled log text and the agent r
 
 **Monitoring Systems:**
 - Prometheus/AlertManager
-- Datadog
-- CloudWatch
-- Azure Monitor
+- Datadog (via manual webhook / planned)
+- CloudWatch (via manual webhook / planned)
+- Azure Monitor (via manual webhook / planned)
 - PagerDuty
 
 **CI/CD Platforms:**
@@ -448,7 +448,7 @@ docs, because a diagnosis can quote attacker-controlled log text and the agent r
 
 **ChatOps:**
 - Slack notifications
-- Microsoft Teams integration
+- Microsoft Teams integration (via manual webhook / planned)
 - PagerDuty escalation
 
 **See [docs/ORGANIZATIONAL_GUIDE.md](https://github.com/open-devops-agent/open-devops-agent/blob/main/docs/ORGANIZATIONAL_GUIDE.md) for integration details.**
@@ -503,7 +503,7 @@ self.collectors['my_platform'] = MyPlatformCollector()
 | **CI/CD** | GitHub Actions, GitLab CI, Jenkins, Azure DevOps, Bamboo |
 | **Cloud** | AWS (EC2, ECS, Lambda, RDS), GCP (GCE, Cloud Run, Functions), Azure (VMs, AKS, Functions) |
 | **Containers** | Kubernetes, Docker, ArgoCD |
-| **Monitoring** | Prometheus Alertmanager, CloudWatch, Azure Monitor |
+| **Monitoring** | Prometheus Alertmanager (built-in); Datadog, CloudWatch, Azure Monitor (via manual webhook / planned) |
 | **Notifications** | Slack, PagerDuty |
 
 ### Intelligent Automation
@@ -519,7 +519,7 @@ self.collectors['my_platform'] = MyPlatformCollector()
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - `kubectl` (for K8s features)
 - Cloud CLI tools (optional): `aws`, `gcloud`, `az`
 
@@ -1035,7 +1035,6 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 - **Documentation**: [open-devops-agent.github.io/open-devops-agent](https://open-devops-agent.github.io/open-devops-agent/)
 - **Issues**: [GitHub Issues](https://github.com/open-devops-agent/open-devops-agent/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/open-devops-agent/open-devops-agent/discussions)
-- **Slack**: [Join our community](https://your-slack-invite.link)
 
 ### Support the project
 
