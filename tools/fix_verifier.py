@@ -7,6 +7,7 @@ Runs verification tests and monitors the system for stability.
 
 import asyncio
 import os
+import shlex
 import time
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
@@ -323,31 +324,30 @@ class FixVerifier:
         try:
             # Check service status if specified
             if "service_name" in expected_state:
-                import subprocess
-                import platform
-                
-                if platform.system().lower() == 'windows':
-                    proc = subprocess.run(
-                        ["sc", "query", expected_state["service_name"]],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        check=False,
+                from collectors.server import ServerCollector, _powershell
+
+                service = str(expected_state["service_name"])
+                # Check the server that was fixed, not the machine running the agent (#193).
+                target_host = expected_state.get("target_host") or None
+                collector = ServerCollector()
+                os_family = await collector.detect_os(target_host)
+                if os_family == "windows":
+                    quoted = service.replace("'", "''")
+                    output = await collector._run(
+                        _powershell(
+                            f"(Get-Service -Name '{quoted}' -ErrorAction SilentlyContinue).Status"
+                        ),
+                        target_host,
                     )
+                    service_running = output.strip().lower() == "running"
                 else:
-                    proc = subprocess.run(
-                        ["systemctl", "is-active", expected_state["service_name"]],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        check=False,
+                    output = await collector._run(
+                        f"systemctl is-active {shlex.quote(service)}", target_host
                     )
-                
-                if platform.system().lower() == 'windows':
-                    service_running = "RUNNING" in proc.stdout
-                else:
-                    service_running = proc.stdout.strip() == "active"
-                
+                    service_running = output.strip() == "active"
+
+                result["details"]["target_host"] = target_host or "localhost"
+                result["details"]["os_family"] = os_family
                 result["details"]["service_status"] = "running" if service_running else "not running"
                 result["passed"] = service_running
                 result["message"] = f"Service is {'running' if service_running else 'not running'}"
